@@ -1,0 +1,7 @@
+stress: 2614 windows, 17 people
+stress  eeg_filtered  bacc 0.535 / 0.505 (30 s)  face R2 +0.465  paired 12/17 p=0.143  perm p=0.184  music-second 2/5
+stress  eeg_cleaned   bacc 0.564 / 0.520 (30 s)  face R2 +0.240  paired 14/17 p=0.013  perm p=0.020  music-second 3/5
+stress  brain_live    bacc 0.522 / 0.501 (30 s)  face R2 +0.124  paired 13/17 p=0.049  perm p=0.090  music-second 5/5
+later   eeg_filtered  bacc 0.542 / 0.528 (30 s)  face R2 +0.516  paired 11/17 p=0.332  perm p=0.100
+later   eeg_cleaned   bacc 0.548 / 0.532 (30 s)  face R2 +0.227  paired 13/17 p=0.049  perm p=0.030
+later   brain_live    bacc 0.510 / 0.502 (30 s)  face R2 +0.075  paired 10/17 p=0.629  perm p=0.154

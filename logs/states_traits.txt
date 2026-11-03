@@ -1,0 +1,18 @@
+depression standard   n=31 (18+/13-)  AUC 0.312  bacc 0.442  face R2 +0.160  perm p=0.868
+depression brain_only n=31 (18+/13-)  AUC 0.462  bacc 0.453  face R2 -0.136  perm p=0.584
+   per-window accuracy, windows split at random (same people in train and test) vs split by person: logistic 0.647 vs 0.429; forest 0.823 vs 0.550
+   marker frontal alpha asymmetry (F4 - F3)    AUC 0.521  p=0.857  Holm p=1.000
+   marker frontal relative alpha               AUC 0.534  p=0.764  Holm p=1.000
+   marker frontal relative theta               AUC 0.410  p=0.412  Holm p=1.000
+anxiety    standard   n=38 (23+/15-)  AUC 0.603  bacc 0.559  face R2 +0.490  perm p=0.202
+anxiety    brain_only n=38 (23+/15-)  AUC 0.539  bacc 0.548  face R2 -0.125  perm p=0.365
+   per-window accuracy, windows split at random (same people in train and test) vs split by person: logistic 0.699 vs 0.537; forest 0.818 vs 0.504
+   marker frontal relative beta                AUC 0.681  p=0.064  Holm p=0.192
+   marker frontal alpha asymmetry (F4 - F3)    AUC 0.455  p=0.654  Holm p=1.000
+   marker frontal relative alpha               AUC 0.528  p=0.788  Holm p=1.000
+sleepiness standard   n=49 (27+/22-)  AUC 0.682  bacc 0.652  face R2 +0.469  perm p=0.042
+sleepiness brain_only n=49 (27+/22-)  AUC 0.576  bacc 0.561  face R2 -0.119  perm p=0.212
+   per-window accuracy, windows split at random (same people in train and test) vs split by person: logistic 0.716 vs 0.581; forest 0.837 vs 0.589
+   marker relative theta, all electrodes       AUC 0.391  p=0.195  Holm p=0.584  rho(VAS)=-0.13 p=0.373
+   marker relative alpha, all electrodes       AUC 0.434  p=0.439  Holm p=0.878  rho(VAS)=-0.10 p=0.492
+   marker relative delta, all electrodes       AUC 0.488  p=0.896  Holm p=0.896  rho(VAS)=+0.02 p=0.896

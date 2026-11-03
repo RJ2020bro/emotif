@@ -1,0 +1,2 @@
+16456 windows, 28 people
+valence  brain_live       bacc 0.569  face R^2 of decoder output +0.064  p = 0.0099

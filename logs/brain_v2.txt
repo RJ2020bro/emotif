@@ -1,0 +1,11 @@
+16456 windows, 28 people
+valence  eeg_filtered     bacc 0.591  face R^2 of decoder output +0.520
+valence  eeg_cleaned      bacc 0.582  face R^2 of decoder output +0.290
+valence  eeg_partialled   bacc 0.569  face R^2 of decoder output -0.001
+valence  brain_live       bacc 0.569  face R^2 of decoder output +0.064
+valence  erased_region    bacc 0.546  face R^2 of decoder output +0.002
+arousal  eeg_filtered     bacc 0.618  face R^2 of decoder output +0.522
+arousal  eeg_cleaned      bacc 0.605  face R^2 of decoder output +0.356
+arousal  eeg_partialled   bacc 0.557  face R^2 of decoder output +0.001
+arousal  brain_live       bacc 0.564  face R^2 of decoder output +0.086
+arousal  erased_region    bacc 0.521  face R^2 of decoder output +0.002

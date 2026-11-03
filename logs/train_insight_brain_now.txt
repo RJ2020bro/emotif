@@ -1,0 +1,15 @@
+loading
+  gameemo_raw: 112 recordings, 28 subjects
+  stress_insight: 34 recordings, 17 subjects
+cleaning: filter + ASR k=20 + artifact detector
+45 subjects, 19070 windows kept, 550 discarded; ASR repaired 4% of 0.125 s blocks; detector masked 32% of channel-windows
+  valence:
+    (no cross-validation run)
+    calibration: temperature 1.76, expected calibration error 0.029 -> 0.021 (held-out)
+  arousal:
+    (no cross-validation run)
+    calibration: temperature 1.97, expected calibration error 0.038 -> 0.020 (held-out)
+  stress:
+    (no cross-validation run)
+    calibration: temperature 1.58, expected calibration error 0.061 -> 0.065 (held-out)
+wrote models/insight_brain.json (heads: valence, arousal, stress)

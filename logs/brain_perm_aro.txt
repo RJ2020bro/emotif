@@ -1,0 +1,3 @@
+16456 windows, 28 people
+         guard holds 0.7% of held-out windows; accuracy on the rest 0.564
+arousal  brain_live       bacc 0.564  face R^2 of decoder output +0.086  p = 0.0196

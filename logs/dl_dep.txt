@@ -1,0 +1,33 @@
+Multi-channel Wireless EEG Recordings of Young Adults for Depression Screening based on PHQ-9 (v1, licence CC BY 4.0)
+ok DCSub1.mat
+ok DCSub10.mat
+ok DCSub11.mat
+ok DCSub12.mat
+ok DCSub13.mat
+ok DCSub2.mat
+ok DCSub3.mat
+ok DCSub4.mat
+ok DCSub5.mat
+ok DCSub6.mat
+ok DCSub7.mat
+ok DCSub8.mat
+ok DCSub9.mat
+ok DSub1.mat
+ok DSub10.mat
+ok DSub11.mat
+ok DSub12.mat
+ok DSub13.mat
+ok DSub14.mat
+ok DSub15.mat
+ok DSub16.mat
+ok DSub17.mat
+ok DSub18.mat
+ok DSub2.mat
+ok DSub3.mat
+ok DSub4.mat
+ok DSub5.mat
+ok DSub6.mat
+ok DSub7.mat
+ok DSub8.mat
+ok DSub9.mat
+downloaded 31 new files (44.1 MB selected) into data/external/depression_phq9

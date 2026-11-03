@@ -1,0 +1,13 @@
+loading
+  gameemo_raw: 112 recordings, 28 subjects
+cleaning: filter + ASR k=20 + artifact detector
+28 subjects, 16456 windows kept, 232 discarded; ASR repaired 4% of 0.125 s blocks; detector masked 31% of channel-windows
+  valence:
+    loso   balanced acc: full=0.567  muse=0.534  openbci_cyton=0.557  neurosity_crown=0.543  unicorn=0.540  brainbit=0.532  frontal_2ch=0.513
+    chance: balanced acc 0.500, majority-class acc 0.501
+    calibration: temperature 1.76, expected calibration error 0.033 -> 0.018 (held-out)
+  arousal:
+    loso   balanced acc: full=0.567  muse=0.536  openbci_cyton=0.550  neurosity_crown=0.557  unicorn=0.559  brainbit=0.542  frontal_2ch=0.537
+    chance: balanced acc 0.500, majority-class acc 0.502
+    calibration: temperature 2.00, expected calibration error 0.039 -> 0.018 (held-out)
+wrote models/gameemo_brain.json (heads: valence, arousal)

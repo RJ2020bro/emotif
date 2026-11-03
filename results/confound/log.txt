@@ -1,0 +1,16 @@
+  muse_mental: 33 recordings, 4 subjects
+Filter only                          LOSO bal. acc 0.661  kept 100%  masked 0%  ASR-repaired 0%
+Filter + amplitude rejection         LOSO bal. acc 0.706  kept 76%  masked 5%  ASR-repaired 0%
+Filter + ASR                         LOSO bal. acc 0.617  kept 100%  masked 0%  ASR-repaired 12%
+Filter + ASR + artifact detector     LOSO bal. acc 0.564  kept 88%  masked 43%  ASR-repaired 12%
+Detector eye/muscle probabilities only LOSO bal. acc 0.676  (1225 windows)
+All detector features                LOSO bal. acc 0.782
+| Pipeline | LOSO balanced accuracy | Windows kept | Channel-windows masked |
+|---|---|---|---|
+| Filter only | 0.661 | 100% | 0% |
+| Filter + amplitude rejection | 0.706 | 76% | 5% |
+| Filter + ASR | 0.617 | 100% | 0% |
+| Filter + ASR + artifact detector | 0.564 | 88% | 43% |
+| Eye/muscle detector probabilities only (no EEG spectra) | 0.676 | 100% | |
+
+Chance = 0.333. Target: arousal.

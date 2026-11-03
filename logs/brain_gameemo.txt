@@ -1,0 +1,4 @@
+  gameemo_raw: 112 recordings, 28 subjects
+16456 windows, 28 people
+valence  eeg_filtered     bacc 0.591  face R^2 of decoder output +0.493
+valence  eeg_cleaned      bacc 0.582  face R^2 of decoder output +0.256

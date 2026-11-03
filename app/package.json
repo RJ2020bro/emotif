@@ -1,0 +1,22 @@
+{
+  "name": "emotif-app",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node build.mjs",
+    "test": "node build.mjs --test-bundles"
+  },
+  "dependencies": {
+    "muse-js": "3.3.0",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@pmndrs/assets": "^1.7.0",
+    "@types/three": "0.170.0",
+    "axe-core": "^4.10.3",
+    "esbuild": "0.24.2",
+    "typescript": "5.8.3"
+  }
+}

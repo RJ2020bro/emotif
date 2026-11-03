@@ -1,0 +1,114 @@
+An EEG Recordings Dataset for Mental Stress Detection (v1, licence CC BY 4.0)
+ok Complex Mathematical Problem solving (CMPS)/1 (1).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (10).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (11).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (12).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (13).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (14).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (15).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (16).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (17).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (18).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (19).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (2).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (20).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (21).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (22).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (3).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (4).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (5).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (6).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (7).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (8).edf
+ok Complex Mathematical Problem solving (CMPS)/1 (9).edf
+ok Horrer Video Stimulation/002 (1).edf
+ok Horrer Video Stimulation/002 (10).edf
+ok Horrer Video Stimulation/002 (11).edf
+ok Horrer Video Stimulation/002 (12).edf
+ok Horrer Video Stimulation/002 (13).edf
+ok Horrer Video Stimulation/002 (14).edf
+ok Horrer Video Stimulation/002 (15).edf
+ok Horrer Video Stimulation/002 (16).edf
+ok Horrer Video Stimulation/002 (17).edf
+ok Horrer Video Stimulation/002 (18).edf
+ok Horrer Video Stimulation/002 (19).edf
+ok Horrer Video Stimulation/002 (2).edf
+ok Horrer Video Stimulation/002 (20).edf
+ok Horrer Video Stimulation/002 (21).edf
+ok Horrer Video Stimulation/002 (22).edf
+ok Horrer Video Stimulation/002 (3).edf
+ok Horrer Video Stimulation/002 (4).edf
+ok Horrer Video Stimulation/002 (5).edf
+ok Horrer Video Stimulation/002 (6).edf
+ok Horrer Video Stimulation/002 (7).edf
+ok Horrer Video Stimulation/002 (8).edf
+ok Horrer Video Stimulation/002 (9).edf
+ok Participants Listening to Relaxing Music/001 (1).edf
+ok Participants Listening to Relaxing Music/001 (10).edf
+ok Participants Listening to Relaxing Music/001 (11).edf
+ok Participants Listening to Relaxing Music/001 (12).edf
+ok Participants Listening to Relaxing Music/001 (13).edf
+ok Participants Listening to Relaxing Music/001 (14).edf
+ok Participants Listening to Relaxing Music/001 (15).edf
+ok Participants Listening to Relaxing Music/001 (16).edf
+ok Participants Listening to Relaxing Music/001 (17).edf
+ok Participants Listening to Relaxing Music/001 (18).edf
+ok Participants Listening to Relaxing Music/001 (19).edf
+ok Participants Listening to Relaxing Music/001 (2).edf
+ok Participants Listening to Relaxing Music/001 (20).edf
+ok Participants Listening to Relaxing Music/001 (3).edf
+ok Participants Listening to Relaxing Music/001 (4).edf
+ok Participants Listening to Relaxing Music/001 (5).edf
+ok Participants Listening to Relaxing Music/001 (6).edf
+ok Participants Listening to Relaxing Music/001 (7).edf
+ok Participants Listening to Relaxing Music/001 (8).edf
+ok Participants Listening to Relaxing Music/001 (9).edf
+ok Stroop Colour Word Test(SCWT)/2 (1).edf
+ok Stroop Colour Word Test(SCWT)/2 (10).edf
+ok Stroop Colour Word Test(SCWT)/2 (11).edf
+ok Stroop Colour Word Test(SCWT)/2 (12).edf
+ok Stroop Colour Word Test(SCWT)/2 (13).edf
+ok Stroop Colour Word Test(SCWT)/2 (14).edf
+ok Stroop Colour Word Test(SCWT)/2 (15).edf
+ok Stroop Colour Word Test(SCWT)/2 (16).edf
+ok Stroop Colour Word Test(SCWT)/2 (17).edf
+ok Stroop Colour Word Test(SCWT)/2 (18).edf
+ok Stroop Colour Word Test(SCWT)/2 (19).edf
+ok Stroop Colour Word Test(SCWT)/2 (2).edf
+ok Stroop Colour Word Test(SCWT)/2 (20).edf
+ok Stroop Colour Word Test(SCWT)/2 (21).edf
+ok Stroop Colour Word Test(SCWT)/2 (22).edf
+ok Stroop Colour Word Test(SCWT)/2 (23).edf
+ok Stroop Colour Word Test(SCWT)/2 (24).edf
+ok Stroop Colour Word Test(SCWT)/2 (3).edf
+ok Stroop Colour Word Test(SCWT)/2 (4).edf
+ok Stroop Colour Word Test(SCWT)/2 (5).edf
+ok Stroop Colour Word Test(SCWT)/2 (6).edf
+ok Stroop Colour Word Test(SCWT)/2 (7).edf
+ok Stroop Colour Word Test(SCWT)/2 (8).edf
+ok Stroop Colour Word Test(SCWT)/2 (9).edf
+ok Trier Mental Challenge Test (TMCT)/3 (1).edf
+ok Trier Mental Challenge Test (TMCT)/3 (10).edf
+ok Trier Mental Challenge Test (TMCT)/3 (11).edf
+ok Trier Mental Challenge Test (TMCT)/3 (12).edf
+ok Trier Mental Challenge Test (TMCT)/3 (13).edf
+ok Trier Mental Challenge Test (TMCT)/3 (14).edf
+ok Trier Mental Challenge Test (TMCT)/3 (15).edf
+ok Trier Mental Challenge Test (TMCT)/3 (16).edf
+ok Trier Mental Challenge Test (TMCT)/3 (17).edf
+ok Trier Mental Challenge Test (TMCT)/3 (18).edf
+ok Trier Mental Challenge Test (TMCT)/3 (19).edf
+ok Trier Mental Challenge Test (TMCT)/3 (2).edf
+ok Trier Mental Challenge Test (TMCT)/3 (20).edf
+ok Trier Mental Challenge Test (TMCT)/3 (21).edf
+ok Trier Mental Challenge Test (TMCT)/3 (22).edf
+ok Trier Mental Challenge Test (TMCT)/3 (23).edf
+ok Trier Mental Challenge Test (TMCT)/3 (24).edf
+ok Trier Mental Challenge Test (TMCT)/3 (3).edf
+ok Trier Mental Challenge Test (TMCT)/3 (4).edf
+ok Trier Mental Challenge Test (TMCT)/3 (5).edf
+ok Trier Mental Challenge Test (TMCT)/3 (6).edf
+ok Trier Mental Challenge Test (TMCT)/3 (7).edf
+ok Trier Mental Challenge Test (TMCT)/3 (8).edf
+ok Trier Mental Challenge Test (TMCT)/3 (9).edf
+downloaded 112 new files (282.4 MB selected) into data/external/stress_insight

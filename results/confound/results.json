@@ -1,0 +1,75 @@
+{
+ "target": "arousal",
+ "datasets": [
+  "muse_mental:data/external/bird_muse"
+ ],
+ "pipelines": [
+  {
+   "pipeline": "Filter only",
+   "bacc": 0.6605762838912113,
+   "per_subject": [
+    0.817427597088614,
+    0.7936251763691858,
+    0.3616662450459567,
+    0.7385163350528124
+   ],
+   "chance": 0.3333333333333333,
+   "windows_kept": 1.0,
+   "channels_masked": 0.0,
+   "asr_repaired": 0.0
+  },
+  {
+   "pipeline": "Filter + amplitude rejection",
+   "bacc": 0.7058034000805086,
+   "per_subject": [
+    0.7918889603592013,
+    0.7552228521930862,
+    0.507195365634567,
+    0.7575057410351528
+   ],
+   "chance": 0.3333333333333333,
+   "windows_kept": 0.7583673469387755,
+   "channels_masked": 0.04843918191603875,
+   "asr_repaired": 0.0
+  },
+  {
+   "pipeline": "Filter + ASR",
+   "bacc": 0.6167209756375934,
+   "per_subject": [
+    0.8009874281060722,
+    0.6155380514673326,
+    0.39691373640273214,
+    0.6519282731515598
+   ],
+   "chance": 0.3333333333333333,
+   "windows_kept": 1.0,
+   "channels_masked": 0.0,
+   "asr_repaired": 0.11878025169409487
+  },
+  {
+   "pipeline": "Filter + ASR + artifact detector",
+   "bacc": 0.5640728967168472,
+   "per_subject": [
+    0.6994367248604537,
+    0.6138367054234547,
+    0.4272906629074981,
+    0.5778004895651954
+   ],
+   "chance": 0.3333333333333333,
+   "windows_kept": 0.88,
+   "channels_masked": 0.42612244897959184,
+   "asr_repaired": 0.11878025169409487
+  }
+ ],
+ "artifact_only": {
+  "bacc": 0.6757529863924657,
+  "per_subject": {
+   "muse_a": 0.8537944724385401,
+   "muse_b": 0.813169686343269,
+   "muse_c": 0.4037861539758833,
+   "muse_d": 0.6977401129943503
+  },
+  "all_detector_features_bacc": 0.7819561773351452
+ },
+ "chance": 0.3333333333333333
+}

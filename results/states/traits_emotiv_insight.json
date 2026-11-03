@@ -1,0 +1,307 @@
+{
+ "depression": {
+  "n": 31,
+  "n_pos": 18,
+  "n_neg": 13,
+  "features": [
+   "Fp1_delta",
+   "Fp1_theta",
+   "Fp1_alpha",
+   "Fp1_beta",
+   "Fp1_gamma",
+   "Fp2_delta",
+   "Fp2_theta",
+   "Fp2_alpha",
+   "Fp2_beta",
+   "Fp2_gamma",
+   "F3_delta",
+   "F3_theta",
+   "F3_alpha",
+   "F3_beta",
+   "F3_gamma",
+   "F4_delta",
+   "F4_theta",
+   "F4_alpha",
+   "F4_beta",
+   "F4_gamma",
+   "T7_delta",
+   "T7_theta",
+   "T7_alpha",
+   "T7_beta",
+   "T7_gamma",
+   "T8_delta",
+   "T8_theta",
+   "T8_alpha",
+   "T8_beta",
+   "T8_gamma",
+   "asym_Fp2-Fp1_delta",
+   "asym_Fp2-Fp1_theta",
+   "asym_Fp2-Fp1_alpha",
+   "asym_Fp2-Fp1_beta",
+   "asym_Fp2-Fp1_gamma",
+   "asym_F4-F3_delta",
+   "asym_F4-F3_theta",
+   "asym_F4-F3_alpha",
+   "asym_F4-F3_beta",
+   "asym_F4-F3_gamma",
+   "asym_T8-T7_delta",
+   "asym_T8-T7_theta",
+   "asym_T8-T7_alpha",
+   "asym_T8-T7_beta",
+   "asym_T8-T7_gamma"
+  ],
+  "windows_per_person_median": 150.0,
+  "markers": [
+   {
+    "marker": "frontal alpha asymmetry (F4 - F3)",
+    "median_pos": -0.04780804110338477,
+    "median_neg": -0.02113047857260164,
+    "auc": 0.5213675213675213,
+    "p": 0.8570393847600656,
+    "p_holm": 1.0
+   },
+   {
+    "marker": "frontal relative alpha",
+    "median_pos": -1.8140163292257596,
+    "median_neg": -1.6732365338870379,
+    "auc": 0.5341880341880342,
+    "p": 0.7639938761058094,
+    "p_holm": 1.0
+   },
+   {
+    "marker": "frontal relative theta",
+    "median_pos": -2.4318524976464926,
+    "median_neg": -2.3043241713296374,
+    "auc": 0.4102564102564102,
+    "p": 0.4118417909418871,
+    "p_holm": 1.0
+   }
+  ],
+  "face_group_p": [
+   0.5089146492133847,
+   0.16724657806258836,
+   0.3468315010184806
+  ],
+  "standard": {
+   "bacc": 0.4423076923076923,
+   "auc": 0.31196581196581197,
+   "face_r2": 0.1600681500040677,
+   "p_perm": 0.8681318681318682
+  },
+  "brain_only": {
+   "bacc": 0.452991452991453,
+   "auc": 0.46153846153846156,
+   "face_r2": -0.13595301542292004,
+   "p_perm": 0.5844155844155844
+  },
+  "window_split": {
+   "n_windows": 4650,
+   "logreg_random": 0.6474501424501424,
+   "logreg_by_person": 0.42903133903133905,
+   "forest_random": 0.8226210826210827,
+   "forest_by_person": 0.5504843304843305
+  }
+ },
+ "anxiety": {
+  "n": 38,
+  "n_pos": 23,
+  "n_neg": 15,
+  "features": [
+   "Fp1_delta",
+   "Fp1_theta",
+   "Fp1_alpha",
+   "Fp1_beta",
+   "Fp1_gamma",
+   "Fp2_delta",
+   "Fp2_theta",
+   "Fp2_alpha",
+   "Fp2_beta",
+   "Fp2_gamma",
+   "F3_delta",
+   "F3_theta",
+   "F3_alpha",
+   "F3_beta",
+   "F3_gamma",
+   "F4_delta",
+   "F4_theta",
+   "F4_alpha",
+   "F4_beta",
+   "F4_gamma",
+   "T7_delta",
+   "T7_theta",
+   "T7_alpha",
+   "T7_beta",
+   "T7_gamma",
+   "T8_delta",
+   "T8_theta",
+   "T8_alpha",
+   "T8_beta",
+   "T8_gamma",
+   "asym_Fp2-Fp1_delta",
+   "asym_Fp2-Fp1_theta",
+   "asym_Fp2-Fp1_alpha",
+   "asym_Fp2-Fp1_beta",
+   "asym_Fp2-Fp1_gamma",
+   "asym_F4-F3_delta",
+   "asym_F4-F3_theta",
+   "asym_F4-F3_alpha",
+   "asym_F4-F3_beta",
+   "asym_F4-F3_gamma",
+   "asym_T8-T7_delta",
+   "asym_T8-T7_theta",
+   "asym_T8-T7_alpha",
+   "asym_T8-T7_beta",
+   "asym_T8-T7_gamma"
+  ],
+  "windows_per_person_median": 150.0,
+  "markers": [
+   {
+    "marker": "frontal relative beta",
+    "median_pos": -2.041697557708856,
+    "median_neg": -2.4733794575645858,
+    "auc": 0.681159420289855,
+    "p": 0.06408739457440023,
+    "p_holm": 0.1922621837232007
+   },
+   {
+    "marker": "frontal alpha asymmetry (F4 - F3)",
+    "median_pos": -0.014851688760289694,
+    "median_neg": 0.012127563517714934,
+    "auc": 0.45507246376811594,
+    "p": 0.654181473075359,
+    "p_holm": 1.0
+   },
+   {
+    "marker": "frontal relative alpha",
+    "median_pos": -1.6077928912071386,
+    "median_neg": -1.44443119107371,
+    "auc": 0.527536231884058,
+    "p": 0.7881016845128016,
+    "p_holm": 1.0
+   }
+  ],
+  "face_group_p": [
+   0.25644484508750576,
+   0.10681862306360324,
+   0.2691725787177691
+  ],
+  "standard": {
+   "bacc": 0.5594202898550724,
+   "auc": 0.6028985507246376,
+   "face_r2": 0.49006115579568144,
+   "p_perm": 0.2017982017982018
+  },
+  "brain_only": {
+   "bacc": 0.5478260869565217,
+   "auc": 0.5391304347826087,
+   "face_r2": -0.12450193015030964,
+   "p_perm": 0.3646353646353646
+  },
+  "window_split": {
+   "n_windows": 5700,
+   "logreg_random": 0.6994202898550725,
+   "logreg_by_person": 0.5369951690821256,
+   "forest_random": 0.8179806763285025,
+   "forest_by_person": 0.5038840579710144
+  }
+ },
+ "sleepiness": {
+  "n": 49,
+  "n_pos": 27,
+  "n_neg": 22,
+  "features": [
+   "Fp1_delta",
+   "Fp1_theta",
+   "Fp1_alpha",
+   "Fp1_beta",
+   "Fp1_gamma",
+   "Fp2_delta",
+   "Fp2_theta",
+   "Fp2_alpha",
+   "Fp2_beta",
+   "Fp2_gamma",
+   "T7_delta",
+   "T7_theta",
+   "T7_alpha",
+   "T7_beta",
+   "T7_gamma",
+   "T8_delta",
+   "T8_theta",
+   "T8_alpha",
+   "T8_beta",
+   "T8_gamma",
+   "Pz_delta",
+   "Pz_theta",
+   "Pz_alpha",
+   "Pz_beta",
+   "Pz_gamma",
+   "asym_Fp2-Fp1_delta",
+   "asym_Fp2-Fp1_theta",
+   "asym_Fp2-Fp1_alpha",
+   "asym_Fp2-Fp1_beta",
+   "asym_Fp2-Fp1_gamma",
+   "asym_T8-T7_delta",
+   "asym_T8-T7_theta",
+   "asym_T8-T7_alpha",
+   "asym_T8-T7_beta",
+   "asym_T8-T7_gamma"
+  ],
+  "windows_per_person_median": 178.0,
+  "markers": [
+   {
+    "marker": "relative theta, all electrodes",
+    "median_pos": -2.0561873665856583,
+    "median_neg": -1.9622440739849596,
+    "auc": 0.39057239057239057,
+    "p": 0.19480369951069842,
+    "p_holm": 0.5844110985320953,
+    "spearman_vass": -0.13009295675124152,
+    "spearman_p": 0.3729632491662175
+   },
+   {
+    "marker": "relative alpha, all electrodes",
+    "median_pos": -1.7745503939195983,
+    "median_neg": -1.6779607985656324,
+    "auc": 0.4343434343434343,
+    "p": 0.4390022795970052,
+    "p_holm": 0.8780045591940104,
+    "spearman_vass": -0.10042890342609578,
+    "spearman_p": 0.4923391938831482
+   },
+   {
+    "marker": "relative delta, all electrodes",
+    "median_pos": -1.2790046260495018,
+    "median_neg": -1.293200234897725,
+    "auc": 0.4882154882154882,
+    "p": 0.896048298354666,
+    "p_holm": 0.896048298354666,
+    "spearman_vass": 0.019095277011367477,
+    "spearman_p": 0.8963859749504791
+   }
+  ],
+  "face_group_p": [
+   0.8328420589809435,
+   0.2821999501291933,
+   0.009796031786563526
+  ],
+  "standard": {
+   "bacc": 0.6515151515151515,
+   "auc": 0.6818181818181819,
+   "face_r2": 0.46852201697999496,
+   "p_perm": 0.04195804195804196
+  },
+  "brain_only": {
+   "bacc": 0.5606060606060606,
+   "auc": 0.5757575757575758,
+   "face_r2": -0.11887662638640184,
+   "p_perm": 0.21178821178821178
+  },
+  "window_split": {
+   "n_windows": 9294,
+   "logreg_random": 0.7159161096230945,
+   "logreg_by_person": 0.5812209785219183,
+   "forest_random": 0.8369516447361511,
+   "forest_by_person": 0.589095940627864
+  }
+ }
+}

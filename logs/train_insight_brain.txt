@@ -1,0 +1,5 @@
+loading
+  gameemo_raw: 112 recordings, 28 subjects
+  stress_insight: 34 recordings, 17 subjects
+cleaning: filter + ASR k=20 + artifact detector
+45 subjects, 19070 windows kept, 550 discarded; ASR repaired 4% of 0.125 s blocks; detector masked 32% of channel-windows

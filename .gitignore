@@ -1,0 +1,11 @@
+# generated / installable
+app/node_modules/
+app/dist-test/
+__pycache__/
+*.pyc
+# participant data: never public (IRB consent: recordings stay on one laptop)
+data/sessions/
+models/personal_*.json
+# third-party datasets: re-download with scripts/get_*.py / get_*.sh (licences, 1.7 GB)
+data/external/
+.env

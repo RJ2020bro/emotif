@@ -1,0 +1,20 @@
+{
+ "smooth_windows": 1,
+ "hop": 2.0,
+ "valence": {
+  "brain_live": {
+   "bacc": 0.5692707284355208,
+   "face_r2": 0.063812184709095,
+   "held_fraction": 0.006988332523091881,
+   "bacc_not_held": 0.5697236369469222
+  }
+ },
+ "arousal": {
+  "brain_live": {
+   "bacc": 0.5642095887495774,
+   "face_r2": 0.08636379065998567,
+   "held_fraction": 0.006988332523091881,
+   "bacc_not_held": 0.5644469503337486
+  }
+ }
+}

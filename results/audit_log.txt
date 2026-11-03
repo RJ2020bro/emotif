@@ -1,0 +1,5 @@
+  muse_mental: 33 recordings, 4 subjects
+1060 windows shared by all pipelines (of 1225)
+EEG, filter only                             0.692  95% CI [0.586, 0.788]  p = 0.0020
+EEG, cleaned (ASR + detector)                0.565  95% CI [0.492, 0.650]  p = 0.0020
+Eye/muscle evidence only                     0.711  95% CI [0.604, 0.811]  p = 0.0020

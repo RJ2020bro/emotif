@@ -1,0 +1,5 @@
+GAMEEMO (AF3, AF4, T7, T8): 15504 windows; stress data: 2526 windows
+valence  eeg_cleaned  horror < relax in 6/17 people (sign p=0.332, Wilcoxon p=0.644, mean diff +0.013); face R2 +0.207
+valence  brain_live   horror < relax in 4/17 people (sign p=0.049, Wilcoxon p=0.003, mean diff +0.052); face R2 +0.049
+arousal  eeg_cleaned  horror > relax in 8/17 people (sign p=1.000, Wilcoxon p=0.854, mean diff +0.007); face R2 +0.253
+arousal  brain_live   horror > relax in 11/17 people (sign p=0.332, Wilcoxon p=0.353, mean diff +0.042); face R2 +0.138
