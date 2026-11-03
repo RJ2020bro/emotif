@@ -50,6 +50,8 @@ headset ─┬─ Emotiv Insight / EPOC (Cortex) · Muse (Web Bluetooth) · Open
 ## Which headset
 **Emotiv Insight** ($499): 5 semi-dry sensors (AF3, AF4, T7, T8, Pz), no gel, and Pz covers parietal alpha, which forehead bands miss. Emotif's stress head is trained on real Insight recordings. It connects through the EMOTIV Launcher (Setup → *Emotiv Insight / EPOC X*); raw EEG needs an Emotiv licence that includes the EEG stream, so check that before buying. Cheaper, no licence: **Muse 2** ($249.99, Web Bluetooth). Details in `docs/HARDWARE.md`.
 
+**Audit of the published numbers** (`research/leaderboard.py`, RESULTS 3e): with windows split at random, as most papers do, scrambled labels score as high as real ones on the stress and trait datasets (the split recognises recordings), and on GAMEEMO eye and jaw indices alone name the game for new people 84 % of the time. The checks ship as a tool: `pip install ./facecheck`, then `facecheck audit data.npz`.
+
 ## Run it
 ```bash
 pip install -r requirements.txt

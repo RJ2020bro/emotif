@@ -1,0 +1,13 @@
+stress
+  stress forest: random 0.756, random_permuted 0.747, random_face 0.757, temporal 0.669, subject 0.581, subject_face 0.600
+  stress logreg: random 0.644, random_permuted 0.567, random_face 0.666, temporal 0.577, subject 0.526, subject_face 0.623
+  stress brain-only subject-wise (logreg): 0.558
+  stress brain-only subject-wise (forest): 0.556
+  stress recording identity: 0.509 (chance 0.0294)
+gameemo
+  gameemo forest: random 0.862, random_permuted 0.383, random_face 0.846, temporal 0.554, subject 0.883, subject_face 0.836
+  gameemo logreg: random 0.515, random_permuted 0.371, random_face 0.508, temporal 0.471, subject 0.433, subject_face 0.425
+  gameemo brain-only subject-wise (logreg): 0.351
+  gameemo brain-only subject-wise (forest): 0.754
+  gameemo recording identity: 0.232 (chance 0.0089)
+wrote results/leaderboard/fig_leaderboard.png

@@ -1,0 +1,23 @@
+gameemo
+  gameemo forest: random 0.862, random_permuted 0.383, random_face 0.846, temporal 0.554, subject 0.883
+  gameemo logreg: random 0.515, random_permuted 0.371, random_face 0.508, temporal 0.471, subject 0.433
+  gameemo brain-only subject-wise: 0.351
+  gameemo recording identity: 0.232 (chance 0.0089)
+stress
+  stress forest: random 0.756, random_permuted 0.747, random_face 0.757, temporal 0.669, subject 0.581
+  stress logreg: random 0.644, random_permuted 0.567, random_face 0.666, temporal 0.577, subject 0.526
+  stress brain-only subject-wise: 0.558
+  stress recording identity: 0.509 (chance 0.0294)
+depression
+  depression forest: random 0.825, random_permuted 0.829, temporal 0.798, subject 0.553
+  depression logreg: random 0.647, random_permuted 0.698, temporal 0.651, subject 0.429
+  depression recording identity: 0.682 (chance 0.0323)
+anxiety
+  anxiety forest: random 0.822, random_permuted 0.812, temporal 0.791, subject 0.493
+  anxiety logreg: random 0.699, random_permuted 0.644, temporal 0.679, subject 0.525
+  anxiety recording identity: 0.655 (chance 0.0263)
+sleepiness
+  sleepiness forest: random 0.840, random_permuted 0.821, temporal 0.796, subject 0.540
+  sleepiness logreg: random 0.716, random_permuted 0.676, temporal 0.703, subject 0.557
+  sleepiness recording identity: 0.692 (chance 0.0204)
+wrote results/leaderboard/fig_leaderboard.png

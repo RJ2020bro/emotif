@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: facecheck
+Version: 0.1.0
+Summary: Audit EEG decoders for facial-artifact leakage and split leakage
+Author: Ryan Jian
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.24
+Requires-Dist: scipy>=1.10
+Requires-Dist: scikit-learn>=1.3

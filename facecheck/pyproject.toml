@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "facecheck"
+version = "0.1.0"
+description = "Audit EEG decoders for facial-artifact leakage and split leakage"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Ryan Jian"}]
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24", "scipy>=1.10", "scikit-learn>=1.3"]
+
+[project.scripts]
+facecheck = "facecheck.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

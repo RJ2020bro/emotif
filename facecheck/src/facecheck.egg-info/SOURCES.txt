@@ -1,0 +1,11 @@
+pyproject.toml
+src/facecheck/__init__.py
+src/facecheck/cli.py
+src/facecheck/core.py
+src/facecheck.egg-info/PKG-INFO
+src/facecheck.egg-info/SOURCES.txt
+src/facecheck.egg-info/dependency_links.txt
+src/facecheck.egg-info/entry_points.txt
+src/facecheck.egg-info/requires.txt
+src/facecheck.egg-info/top_level.txt
+tests/test_facecheck.py

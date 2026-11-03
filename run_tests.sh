@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 (cd app && npm install --silent && npx tsc --noEmit -p . && node build.mjs --test-bundles)
 python3 tests/test_parity.py
 python3 tests/test_cleaning.py
+python3 facecheck/tests/test_facecheck.py
 python3 tests/test_train.py
 python3 tests/test_server.py
 node tests/test_app.mjs

@@ -119,5 +119,13 @@ Requirement: no blocky look; real imagery; the wearer manipulates objects with t
 - Brain control: alpha (8–13 Hz) relative to the wearer's baseline, posterior (Pz on the Insight). Below baseline for 1 s = focus = lift; above for 1 s = relax = place. Hysteresis, hold during facial activity. Tests: dwell, hold, hysteresis, 0 false commands in 2 min of baseline-level noise; browser test lifts and places a crystal.
 - Uniqueness: when the resting baseline completes, its absolute spectrum (and the clock) seeds the world, so each session grows different land, plants, sky choice and crystals.
 
+## Iteration 18: auditing the published numbers
+Question: papers report 80-99.99 % on GAMEEMO and 98 % for depression on the PHQ-9 set; Emotif's honest tests give 0.5-0.6. Why?
+- Test 1, scrambled labels: give every recording a random class and rerun the published-style random window split. On the stress and trait sets the accuracy doesn't move (0.75-0.83 either way): the split measures which recording a window came from (identified from one 2 s window 51-69 % of the time; chance 2-3 %).
+- Test 2, face only: on GAMEEMO, 3 eye/muscle numbers per electrode name the game for new people 84 % of the time (chance 25 %), nearly the full EEG's 88 %.
+- First attempt at the scrambled control permuted labels within each person; with two recordings per person half the permutations kept the true labels, which leaks real signal into the "null". Fixed: a random balanced class per recording, independent of the truth (test: agreement with the true labels 0.50).
+- First figure shared y-axes across panels with different rows, so labels landed on the wrong bars. Fixed with fixed row positions.
+- Packaged as `facecheck` (pip-installable, known-answer tests: fingerprint-only data are flagged for split leakage; brain-carried labels are not flagged for face; face-carried labels are).
+
 ## Verification strategy
 Each algorithm exists twice: Python for training and research, TypeScript for the live app. Automated tests run both on identical input and require agreement to 1e-8 or better (face indices and the brain-only decoder included). 7 test suites run with `./run_tests.sh`, including known-answer simulations for the audit, an axe-core accessibility audit, and an independent reader (MNE) for EDF files.

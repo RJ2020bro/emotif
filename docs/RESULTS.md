@@ -114,6 +114,23 @@ No brain-only screen is above chance. The one significant standard result (sleep
 
 With every electrode of the original caps (14-channel EPOC+, 19-channel 10-20), the result is the same: brain-only AUC 0.32 / 0.56 / 0.49 (depression / anxiety / sleepiness; permutation p 0.89 / 0.28 / 0.48), standard 0.18 / 0.54 / 0.59 (p 0.98 / 0.36 / 0.20; the standard sleepiness output is 59 % face), and random window splits reach 0.92 / 0.90 / 0.86 against 0.53 / 0.50 / 0.56 split by person. More electrodes did not rescue the screens. Sample sizes of 31–49 give wide error bars (Varoquaux 2018); these results rule out large effects, not small ones.
 
+## 3e. Why published accuracies on these datasets are so high (`research/leaderboard.py` → `results/leaderboard/`, `fig_leaderboard.png`)
+Same windows and features as 3c–3d, evaluated the way many papers do (windows split at random) and with controls. Random forest (300 trees), balanced accuracy, 2 s windows. "New people" = 7-fold split with all windows of a person in one fold. Published numbers for these datasets: `docs/PUBLISHED_ACCURACIES.md`.
+
+| Dataset (chance) | Random window split | **Same split, scrambled labels** | Same split, face only | Later 30 % of each recording | New people | New people, face only | New people, brain-only | Which recording? (chance) |
+|---|---|---|---|---|---|---|---|---|
+| GAMEEMO, 4 games (0.25) | 0.86 | 0.38 | 0.85 | 0.55 | 0.88 | **0.84** | 0.75 | 0.23 (0.009) |
+| Stress, Insight (0.5) | 0.76 | **0.75** | 0.76 | 0.67 | 0.58 | **0.60** | 0.56 | 0.51 (0.029) |
+| Depression PHQ-9 (0.5) | 0.83 | **0.83** | — | 0.80 | 0.55 | — | — | 0.68 (0.032) |
+| Anxiety GAD-7 (0.5) | 0.82 | **0.81** | — | 0.79 | 0.49 | — | — | 0.66 (0.026) |
+| Sleepiness VAS (0.5) | 0.84 | **0.82** | — | 0.80 | 0.54 | — | — | 0.69 (0.020) |
+
+*Scrambled labels*: every recording gets a random class (balanced, independent of its true label; 3 draws averaged). The labels mean nothing, so accuracy above chance is recognition of the recording.
+- **Stress and the three trait screens: the random-split accuracy is recording identity.** Scrambled labels score the same as the real ones (0.75 vs 0.76, 0.83 vs 0.83, 0.81 vs 0.82, 0.82 vs 0.84). One 2 s window identifies its recording 51–69 % of the time (chance 2–3 %). The depression paper on this dataset reports 98.43 % with 5-fold CV on 5 s samples.
+- **GAMEEMO: the four games are separable for new people, but mostly by the face.** Eye and muscle indices alone (3 per electrode, no brain rhythms) name the game for new people 84 % of the time (chance 25 %), close to the full EEG's 88 %. Removing what the face indices predict (linearly, with squares) leaves 0.75 for a random forest, which can still exploit nonlinear face structure; the linear brain-only decoder is at 0.35 four-class. Training on the first 70 % of each game and testing on the last 30 % drops to 0.55, so the separating pattern changes over the course of each game and is shared across players: consistent with game-specific, time-locked eye and face behaviour (and possibly time on task, if the games were played in a fixed order; the dataset page doesn't say). Published GAMEEMO results of 94–99.99 % (random or unstated splits) therefore say little about emotion.
+- Logistic regression shows the same pattern at lower levels (stress: random 0.64, scrambled 0.57, new people 0.53, face only on new people 0.62).
+- Tool: the same checks as a package, `facecheck/` (`facecheck audit data.npz`), with known-answer tests.
+
 ## 4. Models (`train.py`, `research/benchmark.py` → `results/muse_mental/`)
 
 | Bird Muse, arousal, cleaned | Within-subject (held-out recording) | LOSO |

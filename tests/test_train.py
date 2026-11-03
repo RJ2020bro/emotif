@@ -293,6 +293,30 @@ def personal_states_pipeline(d, rng):
     print("personal states pipeline OK: state-labelled sessions, per-person calibration with block permutations, group table, ratings")
 
 
+def leaderboard_check(rng):
+    """research/leaderboard.py helpers: scrambled labels are one per recording, balanced and unrelated to the truth;
+    the temporal split never puts a window of a recording's test part in training."""
+    sys.path.insert(0, os.path.join(ROOT, "research"))
+    import leaderboard as LB
+    rec = np.repeat([f"r{i}" for i in range(40)], 30)
+    subj = np.repeat([f"s{i}" for i in range(20)], 60)
+    y = np.repeat(np.arange(40) % 2, 30)
+    agree = []
+    for _ in range(50):
+        yp = LB.permuted_labels(y, rec, subj, rng)
+        assert all(len(set(yp[rec == r])) == 1 for r in np.unique(rec))
+        assert (yp == 1).sum() == (yp == 0).sum()
+        agree.append(np.mean(yp == y))
+    assert abs(np.mean(agree) - 0.5) < 0.05, np.mean(agree)
+    tr, te = LB.temporal_split(rec)
+    assert not set(tr) & set(te)
+    for r in np.unique(rec):
+        i = np.flatnonzero(rec == r)
+        assert max(set(tr) & set(i)) + 2 < min(set(te) & set(i))
+    print("leaderboard helpers OK: scrambled labels balanced, one per recording, agreement with truth %.2f; "
+          "temporal split disjoint with a 2-window gap" % np.mean(agree))
+
+
 def session_qa_check(d, rng):
     """research/session_qa.py on a recorded headset check: a good recording passes all three checks, a recording
     without alpha reactivity fails the first."""
@@ -363,6 +387,7 @@ def main():
         state_loaders(d, rng)
         personal_states_pipeline(d, rng)
         session_qa_check(d, rng)
+        leaderboard_check(rng)
         # brain-only model end to end through train.py: face indices, folded export, hold threshold
         m = train.main(["--data", f"dreamer:{paths['dreamer']}", "--out", os.path.join(d, "brain.json"), "--model", "brain", "--cv", "loso"])
         check_export(m)
