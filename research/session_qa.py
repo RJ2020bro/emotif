@@ -163,6 +163,13 @@ def main(argv=None):
     os.makedirs(a.out, exist_ok=True)
     out = []
     for folder in a.sessions:
+        if not os.path.isfile(os.path.join(folder, "meta.json")):
+            root = os.path.dirname(os.path.normpath(folder)) or "."
+            have = sorted(os.listdir(root)) if os.path.isdir(root) else []
+            sys.exit(f"No recorded session at {folder}. "
+                     + (f"Sessions in {root}: {', '.join(have)}" if have else
+                        "No sessions recorded yet: start the server, run a protocol in Study with Record ticked, then "
+                        "pass the new folder name (not the word FOLDER)."))
         r = qa(folder)
         out.append(r)
         with open(os.path.join(a.out, r["session"] + ".json"), "w") as fh:
