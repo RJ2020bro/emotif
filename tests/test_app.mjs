@@ -264,6 +264,14 @@ function runEngine(channels, model, seconds, va, artifactsEvery = 0) {
       assert.ok(count(happy, T.KIND.bloom) > count(sad, T.KIND.bloom), "pleasant states grow more flowers");
       assert.ok(T.moodRates("rocks", sad) > T.moodRates("rocks", happy) && T.moodRates("crystals", { v: 0, a: 1 }) > T.moodRates("crystals", { v: 0, a: -1 }));
       assert.deepEqual(T.buildChunk(t1, 2, 1, sad).position, T.buildChunk(t2, 2, 1, sad).position, "same state, same chunk");
+      // level of detail: a far (lod 1) chunk has no grass and fewer triangles, the same ground and the same features
+      const near = T.buildChunk(t1, 2, 1, happy, 0), far = T.buildChunk(t1, 2, 1, happy, 1);
+      const kinds = (g, k) => { let n = 0; for (let i = 0; i < g.extra.length; i += 2) if (g.extra[i] === k) n++; return n; };
+      assert.equal(kinds(far, T.KIND.grass), 0);
+      assert.ok(far.index.length < 0.7 * near.index.length, `lod 1 triangles ${far.index.length / 3} vs ${near.index.length / 3}`);
+      assert.equal(far.features + Math.round(kinds(near, T.KIND.grass) / 3 / 25), near.features, "same features at both levels");
+      const groundOf = (g) => { const out = []; for (let i = 0; i < g.position.length / 3; i++) if (g.extra[i * 2] === 0) out.push(g.position[i * 3], g.position[i * 3 + 1], g.position[i * 3 + 2]); return out; };
+      assert.deepEqual(groundOf(far), groundOf(near), "ground mesh identical at both levels, so mixed-detail neighbours meet");
     }
     const sp = t1.spawn(0, 0);
     assert.ok(t1.surface(sp.x, sp.z) >= 1.5, `${style}: spawn on land`);

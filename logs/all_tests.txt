@@ -1,4 +1,4 @@
-web/index.html 3640 KB
+web/index.html 3659 KB
 test bundles in app/dist-test/
 dsp parity OK: 8 sampling rates, max |dDE| = 1.8e-15, quality rule identical
 filter parity OK: max |diff| = 2.8e-10
@@ -36,7 +36,7 @@ cleaning: filter + ASR k=20 + artifact detector
     loso   balanced acc: full=0.970  muse=0.648  emotiv_insight=0.648  emotiv_epoc=0.804  openbci_cyton=0.619  neurosity_crown=0.685  unicorn=0.463  brainbit=0.333  frontal_2ch=0.659
     chance: balanced acc 0.333, majority-class acc 0.333
     calibration: temperature 0.39, expected calibration error 0.064 -> 0.017 (held-out)
-wrote /tmp/tmpdb6d5887/seed.json (heads: valence)
+wrote /tmp/tmp40xdm7ig/seed.json (heads: valence)
 loading
   deap: 16 recordings, 2 subjects
 cleaning: filter + ASR k=20 + artifact detector
@@ -51,7 +51,7 @@ cleaning: filter + ASR k=20 + artifact detector
     loso   balanced acc: full=1.000  muse=1.000  emotiv_insight=1.000  emotiv_epoc=1.000  openbci_cyton=1.000  neurosity_crown=1.000  unicorn=1.000  brainbit=1.000  frontal_2ch=1.000
     chance: balanced acc 0.500, majority-class acc 0.500
     calibration: temperature 0.25, expected calibration error 0.000 -> 0.000 (held-out)
-wrote /tmp/tmpdb6d5887/deap.json (heads: valence, arousal)
+wrote /tmp/tmp40xdm7ig/deap.json (heads: valence, arousal)
 loading
   dreamer: 12 recordings, 2 subjects
 cleaning: filter + ASR k=20 + artifact detector
@@ -66,7 +66,7 @@ cleaning: filter + ASR k=20 + artifact detector
     loso   balanced acc: full=1.000  muse=1.000  emotiv_insight=1.000  openbci_cyton=1.000  neurosity_crown=1.000  unicorn=1.000  brainbit=1.000  frontal_2ch=1.000
     chance: balanced acc 0.500, majority-class acc 0.500
     calibration: temperature 0.25, expected calibration error 0.001 -> 0.000 (held-out)
-wrote /tmp/tmpdb6d5887/dreamer.json (heads: valence, arousal)
+wrote /tmp/tmp40xdm7ig/dreamer.json (heads: valence, arousal)
 loading
   gameemo: 8 recordings, 2 subjects
 cleaning: filter + ASR k=20 + artifact detector
@@ -81,7 +81,7 @@ cleaning: filter + ASR k=20 + artifact detector
     loso   balanced acc: full=1.000  muse=1.000  emotiv_insight=1.000  openbci_cyton=1.000  neurosity_crown=1.000  unicorn=1.000  brainbit=1.000  frontal_2ch=0.993
     chance: balanced acc 0.500, majority-class acc 0.500
     calibration: temperature 0.25, expected calibration error 0.001 -> 0.000 (held-out)
-wrote /tmp/tmpdb6d5887/gameemo.json (heads: valence, arousal)
+wrote /tmp/tmp40xdm7ig/gameemo.json (heads: valence, arousal)
 loading
   csv: 12 recordings, 2 subjects
 cleaning: filter + ASR k=20 + artifact detector
@@ -96,7 +96,7 @@ cleaning: filter + ASR k=20 + artifact detector
     loso   balanced acc: full=1.000  brainbit=1.000  frontal_2ch=1.000
     chance: balanced acc 0.500, majority-class acc 0.500
     calibration: temperature 0.25, expected calibration error 0.004 -> 0.000 (held-out)
-wrote /tmp/tmpdb6d5887/csv.json (heads: valence, arousal)
+wrote /tmp/tmp40xdm7ig/csv.json (heads: valence, arousal)
 loading
   session: 16 recordings, 2 subjects
 cleaning: filter + ASR k=20 + artifact detector
@@ -111,7 +111,7 @@ cleaning: filter + ASR k=20 + artifact detector
     loso   balanced acc: full=1.000  brainbit=1.000  frontal_2ch=1.000
     chance: balanced acc 0.500, majority-class acc 0.500
     calibration: temperature 0.25, expected calibration error 0.003 -> 0.000 (held-out)
-wrote /tmp/tmpdb6d5887/session.json (heads: valence, arousal)
+wrote /tmp/tmp40xdm7ig/session.json (heads: valence, arousal)
 loading
   gameemo: 8 recordings, 2 subjects
   stress_insight: 34 recordings, 17 subjects
@@ -126,10 +126,10 @@ cleaning: filter + ASR k=20 + artifact detector
   stress:
     (no cross-validation run)
     calibration: temperature 20.00, expected calibration error 0.113 -> 0.079 (held-out)
-wrote /tmp/tmpdb6d5887/insight.json (heads: valence, arousal, stress)
+wrote /tmp/tmp40xdm7ig/insight.json (heads: valence, arousal, stress)
 state loaders OK: stress pairs and order labels, duplicate start refused, PHQ/GAD mats, sleepiness table + EDF naming, Insight subset, 3-head model (valence, arousal, stress)
-C01@20261102-173958_C01: held-out accuracy 0.28 (p 0.200); face alone 0.44; passing: calm
-C02@20261102-173958_C02: held-out accuracy 0.50 (p 0.050); face alone 0.50; passing: calm, stress, low_mood
+C01@20261102-201523_C01: held-out accuracy 0.28 (p 0.200); face alone 0.44; passing: calm
+C02@20261102-201523_C02: held-out accuracy 0.50 (p 0.050); face alone 0.50; passing: calm, stress, low_mood
 calm      mean AUC 0.99; 2/2 pass
 stress    mean AUC 0.68; 1/2 pass
 anxiety   mean AUC 0.66; 0/2 pass
@@ -151,7 +151,7 @@ cleaning: filter + ASR k=20 + artifact detector
     loso   balanced acc: full=0.439  muse=0.622  emotiv_insight=0.550  openbci_cyton=0.456  neurosity_crown=0.583  unicorn=0.444  brainbit=0.661  frontal_2ch=0.528
     chance: balanced acc 0.500, majority-class acc 0.500
     calibration: temperature 20.00, expected calibration error 0.117 -> 0.076 (held-out)
-wrote /tmp/tmpdb6d5887/brain.json (heads: valence, arousal)
+wrote /tmp/tmp40xdm7ig/brain.json (heads: valence, arousal)
 loading
   dreamer: 12 recordings, 2 subjects
   deap: 16 recordings, 2 subjects
@@ -166,7 +166,7 @@ cleaning: filter + ASR k=20 + artifact detector
     loso   balanced acc: full=1.000  muse=1.000  emotiv_insight=1.000  openbci_cyton=1.000  neurosity_crown=0.998  unicorn=1.000  brainbit=0.998  frontal_2ch=0.994  emotiv_epoc=1.000
     chance: balanced acc 0.500, majority-class acc 0.500
     calibration: temperature 0.25, expected calibration error 0.036 -> 0.001 (held-out)
-wrote /tmp/tmpdb6d5887/mixed.json (heads: valence, arousal)
+wrote /tmp/tmp40xdm7ig/mixed.json (heads: valence, arousal)
 loading
   muse_mental: 33 recordings, 4 subjects
 cleaning: filter + ASR k=20 + artifact detector
@@ -184,11 +184,11 @@ osc bridge OK: /emotif/state and /emotif/hold reach a UDP listener
 governor: moved 100.0 mm in 1 s at 100 mm/s limit OK
 roarm http transport OK
 roarm serial transport OK
-2026-11-02 17:41:07.775 (   0.004s) [        51A10080]         api_config.cpp:126   INFO| Loaded default config
-2026-11-02 17:41:07.776 (   0.005s) [        51A10080]             common.cpp:82    INFO| git:d7f892d78a9ddad8f55cdd43ca4a35bd7787ee89/branch:refs/tags/v1.18.0.b6/build:Release/compiler:GNU-11.4.0/link:SHARED
-2026-11-02 17:41:07.776 (   0.005s) [        51A10080] stream_outlet_impl.cpp:53    WARN| Could not instantiate IPv6 stack: open: Address family not supported by protocol
-2026-11-02 17:41:07.776 (   0.006s) [        51A10080]         tcp_server.cpp:396   WARN| Failed to create IPv6 acceptor: open: Address family not supported by protocol
-lsl source OK: 256 samples/s with channel labels
+2026-11-02 20:16:36.859 (   0.005s) [        80707080]         api_config.cpp:126   INFO| Loaded default config
+2026-11-02 20:16:36.860 (   0.006s) [        80707080]             common.cpp:82    INFO| git:d7f892d78a9ddad8f55cdd43ca4a35bd7787ee89/branch:refs/tags/v1.18.0.b6/build:Release/compiler:GNU-11.4.0/link:SHARED
+2026-11-02 20:16:36.861 (   0.007s) [        80707080] stream_outlet_impl.cpp:53    WARN| Could not instantiate IPv6 stack: open: Address family not supported by protocol
+2026-11-02 20:16:36.861 (   0.007s) [        80707080]         tcp_server.cpp:396   WARN| Failed to create IPv6 acceptor: open: Address family not supported by protocol
+lsl source OK: 240 samples/s with channel labels
 all server tests passed
 intent OK: blink@5.1, double_blink@5.4, blink@12.1, clench_start@17.2, clench_end@18.8
 director OK: sham reproducible and brain-independent, guide = halfway to target, rate-limited
@@ -199,29 +199,29 @@ photosafety OK: worst-case adversary 1 flashes/s with the limiter (2/s with smoo
 inner world OK: spec validation, interpreter, 5 styles build seamless chunks
 brain-only engine OK: decodes with face input, standard decoder alongside, holds 0/40 windows on the simulator, hold logic verified, extra heads decoded
 Emotiv Cortex source OK: access approval wait, connect, session, eeg columns, licence refusal, close on stop
-personal states OK: brain-coded 6/6 on (bacc 1.00), face-coded 0/6 on while face alone scores 1.00, no signal 0/6; calibration with 99 permutations 2427 ms
+personal states OK: brain-coded 6/6 on (bacc 1.00), face-coded 0/6 on while face alone scores 1.00, no signal 0/6; calibration with 99 permutations 2757 ms
 daily check-in OK: Spearman with ties, markers from named channels, 7-day minimum, planted link found, null survives nothing
 brain control OK: posterior alpha, dwell, hold on face activity, hysteresis, 0 command changes from 2 min of baseline noise
 all app tests passed
-  subject a: 189x real time, 0.90 ms per decoded window (p99 2.47 ms), ASR delay 313 ms; decoded arousal relaxed -0.41 vs concentrating 0.32; channel-windows clean 66% eye 13% muscle 21%
-  subject b: 203x real time, 0.94 ms per decoded window (p99 3.03 ms), ASR delay 313 ms; decoded arousal relaxed -0.41 vs concentrating 0.22; channel-windows clean 61% eye 18% muscle 22%
-  subject c: 233x real time, 0.82 ms per decoded window (p99 1.56 ms), ASR delay 313 ms; decoded arousal relaxed -0.25 vs concentrating 0.10; channel-windows clean 53% eye 13% muscle 33%
-  subject d: 273x real time, 0.79 ms per decoded window (p99 4.05 ms), ASR delay 313 ms; decoded arousal relaxed -0.14 vs concentrating 0.06; channel-windows clean 60% eye 9% muscle 30%
+  subject a: 170x real time, 0.96 ms per decoded window (p99 2.04 ms), ASR delay 313 ms; decoded arousal relaxed -0.41 vs concentrating 0.32; channel-windows clean 66% eye 13% muscle 21%
+  subject b: 229x real time, 0.89 ms per decoded window (p99 2.14 ms), ASR delay 313 ms; decoded arousal relaxed -0.41 vs concentrating 0.22; channel-windows clean 61% eye 18% muscle 22%
+  subject c: 241x real time, 0.87 ms per decoded window (p99 1.52 ms), ASR delay 313 ms; decoded arousal relaxed -0.25 vs concentrating 0.10; channel-windows clean 53% eye 13% muscle 33%
+  subject d: 257x real time, 0.85 ms per decoded window (p99 1.69 ms), ASR delay 313 ms; decoded arousal relaxed -0.14 vs concentrating 0.06; channel-windows clean 60% eye 9% muscle 30%
 replay OK: 4 real Muse sessions through the live pipeline
 accessibility OK: axe-core WCAG 2.1 AA, 7 views x 2 themes, no serious or critical violations; skip link first in tab order
-EDF playback OK: 4-channel EDF with an accelerometer channel decoded end to end; announced 'Baseline done. Decoding.'; sound display toggles
-personal states OK: calibration protocol listed, model loads per participant, live shows only passing states (You: Stress 3 % · Anger 1 %)
+EDF playback OK: 4-channel EDF with an accelerometer channel decoded end to end; announced 'State: Neutral'; sound display toggles
+personal states OK: calibration protocol listed, model loads per participant, live shows only passing states (You: Stress 23 % · Anger 1 %)
 mind control OK: crystal targeted, lifted on focus, placed and blooming on relax
 inner world OK: theme -> world on device, 5 art styles (natural, voxel, low-poly, dream, neon) render streamed chunks with features, explorer wanders, arm scene separate, 'neon synthwave mountains' persists
 browser-only mode OK (no server), booth demo OK
-  steer (+0.8,+0.7) -> (+0.96,+0.98) Happy ok
-  steer (+0.8,-0.7) -> (+0.94,-0.96) Calm ok
-  steer (-0.8,-0.7) -> (-0.93,-0.98) Sad ok
-  steer (-0.8,+0.7) -> (-0.88,+0.96) Stressed ok
-cleaning live: ASR + detector active; ASR 8% · all ch clean
-brain vs face panel OK: both decoders live, clench raised the jaw index to 1.2 (log units over baseline)
-protocol: 3 rated blocks recorded to 20261102-174941_T01, reloaded for training with SAM labels
-personalization: valence: fitted on 65 windows; accuracy can't be checked yet (needs at least two rated blocks for each level). arousal: fitted on 65 windows; accuracy can't be 
+  steer (+0.8,+0.7) -> (+0.95,+0.98) Happy ok
+  steer (+0.8,-0.7) -> (+0.89,-0.97) Calm ok
+  steer (-0.8,-0.7) -> (-0.99,-0.97) Sad ok
+  steer (-0.8,+0.7) -> (-0.88,+0.99) Stressed ok
+cleaning live: ASR + detector active; ASR 8% · 1 ch held out
+brain vs face panel OK: both decoders live, clench raised the jaw index to 1.1 (log units over baseline)
+protocol: 3 rated blocks recorded to 20261102-202706_T01, reloaded for training with SAM labels
+personalization: valence: fitted on 70 windows; accuracy can't be checked yet (needs at least two rated blocks for each level). arousal: fitted on 70 windows; accuracy can't be 
 intent control: double blink -> 'Back', clench moved the arm 49 mm
 server arm: follows targets; Esc emergency stop disables it
 browser e2e OK, no console errors

@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { slewToward } from "./safety";
 import { forward, inverse, INIT, L2, T2, type Pose } from "./arm";
-import { CHUNK, Terrain, buildChunk, type ChunkMood } from "./terrain";
+import { CHUNK, Terrain, buildChunk, type ChunkGeometry, type ChunkMood } from "./terrain";
 import { DEFAULT_SPEC, validateSpec, type Weather, type WorldSpec } from "./worldspec";
 
 const PAL = { // [sky top, horizon, ground low, ground high, accent]
@@ -346,6 +346,8 @@ const S = 0.06;           // world units per millimetre for the arm twin
 const PEDESTAL = 6;       // pedestal height (world units)
 const SHOULDER_MM = 126;  // base plate to shoulder joint (firmware ARM_L1_LENGTH_MM)
 const RADIUS = 3;         // chunks loaded around the explorer in each direction (2 on slow GPUs)
+const NEAR = 1;           // chunks within this ring get full detail (grass, fine crowns); the rest lod 1
+const MAX_JOBS = 4;       // chunk jobs in flight to the worker
 const NP = 1600, BOX_W = 70, BOX_H = 34;
 
 export class World {
@@ -381,7 +383,11 @@ export class World {
   private controls!: OrbitControls;
   private specV: WorldSpec = validateSpec(DEFAULT_SPEC);
   private terrain = new Terrain(this.specV);
-  private chunks = new Map<string, { mesh: THREE.Mesh; features: number }>();
+  private chunks = new Map<string, { mesh: THREE.Mesh; features: number; lod: number }>();
+  // chunk building runs in a Web Worker when one can be started (chunkworker.ts); otherwise on this thread
+  private worker: Worker | null = null;
+  private gen = 0;                                    // world generation: replies for an older world are dropped
+  private pending = new Map<string, number>();        // chunk key -> lod requested from the worker
   private U = {
     uTime: { value: 0 }, uSway: { value: 0.5 }, uWaterTime: { value: 0 }, uWave: { value: 0.6 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.85, 0.3).normalize() }, uSunColor: { value: new THREE.Color() },
@@ -457,9 +463,10 @@ export class World {
     } catch {
       return false;
     }
-    this.maxPR = Math.min(window.devicePixelRatio || 1, 2);
+    this.maxPR = Math.min(window.devicePixelRatio || 1, 1.5);   // beyond 1.5 the cost grows faster than the gain
     this.pr = this.maxPR;
     this.renderer.setPixelRatio(this.pr);
+    this.startWorker();
     const el = this.renderer.domElement;
     el.className = "world-canvas";
     el.tabIndex = 0;
@@ -618,12 +625,28 @@ export class World {
     this.scene.fog = new THREE.FogExp2(0xffffff, 0.02);
   }
 
+  private startWorker() {
+    const src = (globalThis as { __EMOTIF_CHUNK_WORKER?: string }).__EMOTIF_CHUNK_WORKER;
+    if (!src || typeof Worker === "undefined" || typeof Blob === "undefined") return;
+    try {
+      const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+      const w = new Worker(url);
+      w.onmessage = e => this.onChunk(e.data);
+      w.onerror = () => { w.terminate(); if (this.worker === w) { this.worker = null; this.pending.clear(); } };   // fall back to this thread
+      w.postMessage({ type: "spec", spec: this.specV, gen: this.gen });
+      this.worker = w;
+    } catch { this.worker = null; }
+  }
+
   /** Replace the inner world. The explorer stays where it is if there is land there. */
   setSpec(spec: WorldSpec) {
     this.specV = validateSpec(spec);
     this.terrain = new Terrain(this.specV);
     for (const c of this.chunks.values()) { this.scene.remove(c.mesh); c.mesh.geometry.dispose(); }
     this.chunks.clear();
+    this.gen++;
+    this.pending.clear();
+    this.worker?.postMessage({ type: "spec", spec: this.specV, gen: this.gen });
     const st = this.specV.style;
     this.U.uBlock.value = st === "voxel" ? 1 : 0;
     this.U.uToon.value = st === "dream" ? 1 : 0;
@@ -663,46 +686,84 @@ export class World {
     if (down) { this.keys.add(k); this.lastInteract = this.time; } else this.keys.delete(k);
   }
 
-  private streamChunks(budgetMs: number) {
+  /** Bring the chunks around the explorer up to date: missing chunks first (nearest first), then near chunks still
+   * at low detail. With a worker the jobs are queued (at most MAX_JOBS in flight) and arrive in onChunk; without one,
+   * or when sync is set, chunks are built here until budgetMs is spent. */
+  private streamChunks(budgetMs: number, sync = false) {
     const ccx = Math.floor(this.pos.x / CHUNK), ccz = Math.floor(this.pos.z / CHUNK);
     for (const [k, c] of this.chunks) {
       const [x, z] = k.split(",").map(Number);
       if (Math.max(Math.abs(x - ccx), Math.abs(z - ccz)) > this.radius + 1) { this.scene.remove(c.mesh); c.mesh.geometry.dispose(); this.chunks.delete(k); }
     }
-    const need: [number, number, number][] = [];
+    const need: [number, number, number, number][] = [];
     for (let dz = -this.radius; dz <= this.radius; dz++) for (let dx = -this.radius; dx <= this.radius; dx++) {
-      if (!this.chunks.has(`${ccx + dx},${ccz + dz}`)) need.push([dx * dx + dz * dz, ccx + dx, ccz + dz]);
+      const key = `${ccx + dx},${ccz + dz}`, lod = Math.max(Math.abs(dx), Math.abs(dz)) <= NEAR ? 0 : 1, c = this.chunks.get(key);
+      if (!c) need.push([dx * dx + dz * dz, ccx + dx, ccz + dz, lod]);
+      else if (c.lod > lod) need.push([1000 + dx * dx + dz * dz, ccx + dx, ccz + dz, lod]);
     }
     if (!need.length) return;
-    need.sort((a, b) => a[0] - b[0]);
-    const t0 = performance.now();
-    for (const [, cx, cz] of need) {
-      const key = `${cx},${cz}`;
-      let mood = this.chunkMood.get(key);
-      if (!mood) {   // land generated now grows from the current state, rounded so a rebuild is identical
-        mood = { v: Math.round(clamp(this.cur.v, -1, 1) * 10) / 10, a: Math.round(clamp(this.cur.a, -1, 1) * 10) / 10 };
-        if (this.chunkMood.size > 20000) this.chunkMood.clear();
-        this.chunkMood.set(key, mood);
+    need.sort((p, q) => p[0] - q[0]);
+    if (this.worker && !sync) {
+      for (const [, cx, cz, lod] of need) {
+        if (this.pending.size >= MAX_JOBS) break;
+        const key = `${cx},${cz}`;
+        if (this.pending.get(key) === lod) continue;
+        this.pending.set(key, lod);
+        this.worker.postMessage({ type: "job", gen: this.gen, key, cx, cz, mood: this.moodFor(key), lod });
       }
-      const g = buildChunk(this.terrain, cx, cz, mood);
-      const geom = new THREE.BufferGeometry();
-      geom.setAttribute("position", new THREE.BufferAttribute(g.position, 3));
-      geom.setAttribute("normal", new THREE.BufferAttribute(g.normal, 3));
-      geom.setAttribute("aColor", new THREE.BufferAttribute(g.color, 3));
-      geom.setAttribute("aExtra", new THREE.BufferAttribute(g.extra, 2));
-      geom.setAttribute("aUv", new THREE.BufferAttribute(g.uv, 2));
-      geom.setIndex(new THREE.BufferAttribute(g.index, 1));
-      geom.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geom, this.chunkMat);
-      mesh.matrixAutoUpdate = false;
-      this.scene.add(mesh);
-      this.chunks.set(`${cx},${cz}`, { mesh, features: g.features });
+      return;
+    }
+    const t0 = performance.now();
+    for (const [, cx, cz, lod] of need) {
+      const key = `${cx},${cz}`;
+      this.placeChunk(key, buildChunk(this.terrain, cx, cz, this.moodFor(key), lod), lod);
       if (performance.now() - t0 > budgetMs) break;
     }
   }
 
+  /** The state a chunk grows from: fixed the first time the chunk is made, so revisited land looks the same. */
+  private moodFor(key: string): ChunkMood {
+    let mood = this.chunkMood.get(key);
+    if (!mood) {   // rounded so a rebuild is identical
+      mood = { v: Math.round(clamp(this.cur.v, -1, 1) * 10) / 10, a: Math.round(clamp(this.cur.a, -1, 1) * 10) / 10 };
+      if (this.chunkMood.size > 20000) this.chunkMood.clear();
+      this.chunkMood.set(key, mood);
+    }
+    return mood;
+  }
+
+  private placeChunk(key: string, g: ChunkGeometry, lod: number) {
+    const old = this.chunks.get(key);
+    if (old) { this.scene.remove(old.mesh); old.mesh.geometry.dispose(); }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(g.position, 3));
+    geom.setAttribute("normal", new THREE.BufferAttribute(g.normal, 3));
+    geom.setAttribute("aColor", new THREE.BufferAttribute(g.color, 3));
+    geom.setAttribute("aExtra", new THREE.BufferAttribute(g.extra, 2));
+    geom.setAttribute("aUv", new THREE.BufferAttribute(g.uv, 2));
+    geom.setIndex(new THREE.BufferAttribute(g.index, 1));
+    geom.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geom, this.chunkMat);
+    mesh.matrixAutoUpdate = false;
+    this.scene.add(mesh);
+    this.chunks.set(key, { mesh, features: g.features, lod });
+  }
+
+  private onChunk(m: { gen: number; key: string; cx: number; cz: number; lod: number; g: ChunkGeometry }) {
+    if (m.gen !== this.gen) return;
+    if (this.pending.get(m.key) === m.lod) this.pending.delete(m.key);
+    const ccx = Math.floor(this.pos.x / CHUNK), ccz = Math.floor(this.pos.z / CHUNK);
+    if (Math.max(Math.abs(m.cx - ccx), Math.abs(m.cz - ccz)) > this.radius + 1) return;   // explorer has moved on
+    const have = this.chunks.get(m.key);
+    if (have && have.lod <= m.lod) return;                                                // already as detailed
+    this.placeChunk(m.key, m.g, m.lod);
+  }
+
+  /** Whether chunks are being built in a worker (tests). */
+  get workerActive(): boolean { return !!this.worker; }
+
   /** Build every chunk around the explorer now (tests and screenshots). */
-  buildAll() { if (this.ok) this.streamChunks(1e9); }
+  buildAll() { if (this.ok) this.streamChunks(1e9, true); }
 
   private moveExplorer(dt: number, motion: number, ar: number, va: number) {
     const T = this.terrain, m = this.specV.mood;

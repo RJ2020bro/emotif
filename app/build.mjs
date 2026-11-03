@@ -13,6 +13,12 @@ const js = await build({
   minify: true, legalComments: "none", define: { "process.env.NODE_ENV": '"production"' }, logLevel: "warning",
 });
 const code = js.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
+// terrain chunk builder for the Web Worker (chunkworker.ts), embedded as source text and started from a Blob URL
+const wjs = await build({
+  entryPoints: [join(here, "src", "chunkworker.ts")], bundle: true, write: false, format: "iife", target: "es2020",
+  minify: true, legalComments: "none", logLevel: "warning",
+});
+const workerSrc = JSON.stringify(wjs.outputFiles[0].text).replace(/<\/script/gi, "<\\/script");
 const css = readFileSync(join(here, "src", "styles.css"), "utf8");
 // result figures shown in the Method view, embedded as data URIs (skipped if not generated yet)
 const figFiles = {
@@ -35,7 +41,7 @@ for (const f of readdirSync(join(here, "assets"))) {
   if (m) assets[m[1]] = `data:image/${m[2] === "jpg" ? "jpeg" : "png"};base64,` + readFileSync(join(here, "assets", f)).toString("base64");
 }
 const tpl = readFileSync(join(here, "src", "index.html"), "utf8");
-const figJs = `window.__EMOTIF_FIGS=${JSON.stringify(figs)};window.__EMOTIF_ASSETS=${JSON.stringify(assets)};`;
+const figJs = `window.__EMOTIF_FIGS=${JSON.stringify(figs)};window.__EMOTIF_ASSETS=${JSON.stringify(assets)};window.__EMOTIF_CHUNK_WORKER=${workerSrc};`;
 const html = tpl.replace("/*CSS*/", () => css).replace("/*JS*/", () => figJs + "\n" + code);
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, html);

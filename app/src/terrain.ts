@@ -275,12 +275,15 @@ export function moodRates(kind: Feature, m: ChunkMood): number {
   }
 }
 
-export function buildChunk(T: Terrain, cx: number, cz: number, mood: ChunkMood = NEUTRAL): ChunkGeometry {
+/** lod 0: full detail (near the explorer); lod 1 (far chunks): no grass blades, coarser crowns, stones and pine cones,
+ * half the leaf cards. The ground mesh and every feature's position are the same at both levels, so neighbouring
+ * chunks of different detail still meet exactly. */
+export function buildChunk(T: Terrain, cx: number, cz: number, mood: ChunkMood = NEUTRAL, lod = 0): ChunkGeometry {
   const mb = new MB();
   if (T.voxel) voxelGround(mb, T, cx, cz);
   else fieldGround(mb, T, cx, cz, T.spec.style === "lowpoly" ? 2 : 1, T.spec.style !== "dream" && T.spec.style !== "natural");
-  let features = placeFeatures(mb, T, cx, cz, mood);
-  if (T.spec.style === "natural") features += grass(mb, T, cx, cz, mood);
+  let features = placeFeatures(mb, T, cx, cz, mood, lod);
+  if (T.spec.style === "natural" && lod === 0) features += grass(mb, T, cx, cz, mood);
   return mb.finish(features);
 }
 
@@ -377,7 +380,7 @@ function fieldGround(mb: MB, T: Terrain, cx: number, cz: number, step: number, f
 }
 
 const G = 3;   // feature cell size; CHUNK is a multiple of it
-function placeFeatures(mb: MB, T: Terrain, cx: number, cz: number, mood: ChunkMood): number {
+function placeFeatures(mb: MB, T: Terrain, cx: number, cz: number, mood: ChunkMood, lod = 0): number {
   const spec = T.spec, s = spec.seed, feats = spec.features.filter(f => f.density > 0);
   if (!feats.length) return 0;
   const rates = feats.map(f => BASE_RATE[f.kind] * f.density * Math.max(0, moodRates(f.kind, mood)));
@@ -403,7 +406,7 @@ function placeFeatures(mb: MB, T: Terrain, cx: number, cz: number, mood: ChunkMo
       if (sl > 1.1 && kind !== "rocks" && kind !== "crystals") continue;
     }
     if (T.voxel) voxelFeature(mb, kind, x, y, z, size, r2, C, s + gx * 31 + gz);
-    else if (spec.style === "natural") naturalFeature(mb, kind, x, y, z, size, r2, C, s + gx * 31 + gz);
+    else if (spec.style === "natural") naturalFeature(mb, kind, x, y, z, size, r2, C, s + gx * 31 + gz, lod);
     else smoothFeature(mb, kind, x, y, z, size, r2, C, spec.style === "dream", s + gx * 31 + gz);
     count++;
   }
@@ -537,12 +540,13 @@ function smoothFeature(mb: MB, kind: Feature, x: number, y: number, z: number, s
 }
 
 /** Natural style: bark-textured trunks, crowns of leaf cards around a dark inner volume, textured stones. */
-function naturalFeature(mb: MB, kind: Feature, x: number, y: number, z: number, s: number, r2: number, C: Cols, seed: number) {
-  const K = KIND, sc = 0.85 + 0.6 * s, rot = r2 * Math.PI * 2;
+function naturalFeature(mb: MB, kind: Feature, x: number, y: number, z: number, s: number, r2: number, C: Cols, seed: number, lod = 0) {
+  const K = KIND, sc = 0.85 + 0.6 * s, rot = r2 * Math.PI * 2, fine = lod === 0;
   const vary = (c: RGB, k: number): RGB => mul(c, 0.82 + 0.3 * ihash(seed, k, 9));
   const crown = (cx: number, cy: number, cz: number, r: number, col: RGB, n: number, k0: number) => {
-    mb.blob(cx, cy, cz, r * 0.72, r * 0.6, r * 0.72, mul(col, 0.7), K.sway, y, true, seed + k0, true);
-    for (let k = 0; k < n; k++) {
+    mb.blob(cx, cy, cz, r * 0.72, r * 0.6, r * 0.72, mul(col, 0.7), K.sway, y, true, seed + k0, fine);
+    const cards = fine ? n : Math.ceil(n / 2);
+    for (let k = 0; k < cards; k++) {
       const u = ihash(seed, k0 * 31 + k, 11) * 2 - 1, ph = ihash(seed, k0 * 31 + k, 12) * Math.PI * 2, q = Math.sqrt(1 - u * u);
       const dir: V3 = [q * Math.cos(ph), u * 0.8, q * Math.sin(ph)];
       const at: V3 = [cx + dir[0] * r * 0.62, cy + dir[1] * r * 0.62, cz + dir[2] * r * 0.62];
@@ -567,7 +571,7 @@ function naturalFeature(mb: MB, kind: Feature, x: number, y: number, z: number, 
     }
     case "pines": {
       mb.cone(x, y - 0.6, z, 0.26 * sc, 0.1 * sc, 2.4 * sc, 8, rot, vary(TRUNK, 0), K.bark, y, true);
-      for (let k = 0; k < 6; k++) mb.cone(x, y + (0.9 + 0.85 * k) * sc, z, (2.0 - 0.3 * k) * sc, 0, 1.6 * sc, 12, rot + k * 0.7, vary(C.pine, k), K.sway, y, true);
+      for (let k = 0; k < 6; k++) mb.cone(x, y + (0.9 + 0.85 * k) * sc, z, (2.0 - 0.3 * k) * sc, 0, 1.6 * sc, fine ? 12 : 7, rot + k * 0.7, vary(C.pine, k), K.sway, y, true);
       break;
     }
     case "palms": {
@@ -591,8 +595,8 @@ function naturalFeature(mb: MB, kind: Feature, x: number, y: number, z: number, 
       break;
     }
     case "rocks":
-      mb.blob(x, y - 0.1, z, 1.1 * sc, 0.7 * sc, 0.9 * sc, vary(STONE, 0), K.stone, y, true, seed, true);
-      if (r2 > 0.45) mb.blob(x + 0.9 * sc, y - 0.2, z + 0.4 * sc, 0.6 * sc, 0.45 * sc, 0.55 * sc, vary(STONE, 1), K.stone, y, true, seed + 1, true);
+      mb.blob(x, y - 0.1, z, 1.1 * sc, 0.7 * sc, 0.9 * sc, vary(STONE, 0), K.stone, y, true, seed, fine);
+      if (r2 > 0.45) mb.blob(x + 0.9 * sc, y - 0.2, z + 0.4 * sc, 0.6 * sc, 0.45 * sc, 0.55 * sc, vary(STONE, 1), K.stone, y, true, seed + 1, fine);
       break;
     default:
       smoothFeature(mb, kind, x, y, z, s, r2, C, true, seed);

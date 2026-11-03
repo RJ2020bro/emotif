@@ -127,5 +127,11 @@ Question: papers report 80-99.99 % on GAMEEMO and 98 % for depression on the PHQ
 - First figure shared y-axes across panels with different rows, so labels landed on the wrong bars. Fixed with fixed row positions.
 - Packaged as `facecheck` (pip-installable, known-answer tests: fingerprint-only data are flagged for split leakage; brain-carried labels are not flagged for face; face-carried labels are).
 
+## Iteration 19: the world lagged
+Measured: in the Natural style one chunk took 15 ms to build (up to 40 ms) on the main thread, and the 49 chunks in view held 535,000 triangles. Each new chunk dropped frames.
+- Chunk building moved to a Web Worker (`chunkworker.ts`, same seeded Terrain, so worker and main-thread chunks are identical; falls back to the main thread if a worker can't start).
+- Level of detail: only the 9 chunks around the explorer get grass blades, fine crowns and stones; far chunks get coarser crowns, half the leaf cards and no grass. Far chunk: 5 ms and 47 % fewer triangles; the scene drops from 535k to about 330k triangles. Ground meshes are identical at both levels, so mixed-detail neighbours still meet (test).
+- Render resolution capped at 1.5x device pixels (was 2x).
+
 ## Verification strategy
 Each algorithm exists twice: Python for training and research, TypeScript for the live app. Automated tests run both on identical input and require agreement to 1e-8 or better (face indices and the brain-only decoder included). 7 test suites run with `./run_tests.sh`, including known-answer simulations for the audit, an axe-core accessibility audit, and an independent reader (MNE) for EDF files.
