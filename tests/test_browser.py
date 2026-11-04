@@ -314,7 +314,7 @@ def check_guided_session(page, port, sessions):
     page.dispatch_event("#wizNext", "click")
     assert page.input_value("#pcode") == "G08" and not page.is_checked("#consent") and page.get_attribute("#wiz2", "data-state") == "now"
     page.dispatch_event("#wizS1", "click")
-    page.evaluate("window.emotif.sourceKind = 'sim'; window.emotif.paintWizard()")
+    page.evaluate("window.emotif.sourceKind = 'sim'; window.emotif.paintWizard(); window.emotif.arm.intentIndex = 0")  # the test's blinks were double blinks
     print(f"guided session OK: steps unlock in order, check recorded and scored by the server ({res})")
 
 
