@@ -67,6 +67,32 @@ function download(name: string, text: string, type = "application/json") {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
+/** The two participant sessions of the approved human study, as run by the guided panel in Study. */
+const WIZ_MAIN = {
+  1: { pid: "states", label: "Session 1", task: "Personal calibration", minutes: 40,
+       what: "Blink and jaw check, then 18 one-minute tasks (calm, stress, worry, annoyance, low mood, sleepy) with a 0\u201310 rating after each.",
+       say: "Say: \u201cYou'll do short one-minute tasks. After each one, rate how strongly you felt it. Keep your head and jaw still while a task runs. You can stop at any time.\u201d About 28 minutes.",
+       finish: "Ask how they feel. Remove the headset and wipe the sensors with an alcohol wipe. Book Session 2 on a different day. The personal states for this code are saved on this computer." },
+  2: { pid: "closedloop", label: "Session 2", task: "Stress and recovery", minutes: 25,
+       what: "Blink and jaw check, then three rounds of 1 minute of arithmetic and 2.5 minutes in the 3-D world, with a rating after each round.",
+       say: "Say: \u201cThree rounds: a minute of fast mental arithmetic, then a few minutes of watching the world and relaxing. Rate how you feel after each round.\u201d About 13 minutes. Don't say which round is which.",
+       finish: "Read the debrief: \u201cIn one of the three landscape rounds, the landscape followed a random path instead of your headband. I didn't tell you which one beforehand so I could compare it fairly with the other two. Your data still helps; if you'd rather I delete it, tell me now or email me. I can't tell you what your recording showed, because the study can't diagnose anything. How are you feeling?\u201d Then remove the headset and wipe the sensors." },
+} as const;
+
+type QaResult = { ready: boolean; contact_ok: boolean; unusable_share: Record<string, number>;
+  checks: { blink_index?: { best_frontal: number; pass: boolean }; jaw_index?: { best_temporal: number; pass: boolean } } };
+
+/** One line for the guided panel from research/session_qa.py's result. */
+function qaText(q: QaResult): string {
+  const parts: string[] = [];
+  const bad = Object.entries(q.unusable_share ?? {}).filter(([, v]) => v > 0.2).map(([k, v]) => `${k} ${Math.round(v * 100)} %`);
+  parts.push(q.contact_ok ? "contact OK" : `poor contact on ${bad.join(", ") || "an electrode"} (re-seat it)`);
+  const b = q.checks?.blink_index, j = q.checks?.jaw_index;
+  parts.push(b ? `blinks ${b.best_frontal.toFixed(1)}\u00d7 (needs 2) ${b.pass ? "pass" : "fail: blink firmly once a second"}` : "blinks not measured");
+  parts.push(j ? `jaw ${j.best_temporal.toFixed(1)}\u00d7 (needs 3) ${j.pass ? "pass" : "fail: clench a little harder"}` : "jaw not measured");
+  return `${q.ready ? "Passed" : "Not passed"}: ${parts.join("; ")}.`;
+}
+
 const WORLD_LOCKED = "The world is locked during a study session, so every condition shows the same world.";
 
 type ModelEntry = { id: string; name: string; desc: string; model: ModelFile | null; origin: string; file?: string };
@@ -167,6 +193,7 @@ class App {
       finish: r => this.onRunFinished(r),
     });
     this.engine.listeners.add(ev => this.onWindow(ev));
+    window.setInterval(() => this.paintWizard(), 1000);
     this.loadModels();
     this.loadPersonalStates();
     this.go(store.get<View>("view", "live"));
@@ -387,28 +414,152 @@ class App {
         store.set("protocol", p.id);
       } }, h("b", {}, p.name), h("span", {}, p.summary), h("span", { class: "meta" }, `about ${p.minutes} min`)));
     }
+    const pick = (n: 1 | 2) => h("button", { class: "card-opt", id: `wizS${n}`, "aria-pressed": String(this.wiz.session === n),
+      onclick: () => { if (this.protocolActive) return; this.wiz.session = n; store.set("wizSession", n); this.wiz.mainDone = false; this.wiz.mainMsg = ""; this.paintWizard(); } },
+      h("b", {}, WIZ_MAIN[n].label), h("span", {}, WIZ_MAIN[n].what), h("span", { class: "meta" }, `about ${WIZ_MAIN[n].minutes} min with setup`));
     return h("section", { class: "view", tabindex: "0", "data-view": "study", hidden: true },
-      h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "Run a study session"),
-        h("p", {}, "Guided tasks with ratings after each block. Ratings label the EEG for personal models and for analysis."))),
+      h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "Run a participant session"),
+        h("p", {}, "Follow the steps in order. Each step turns green when it's done; the next one unlocks."))),
       h("div", { class: "cols-2" },
         h("div", { class: "cards" },
-          h("section", { class: "panel" }, h("h3", {}, "Protocol"), list),
+          h("section", { class: "panel", id: "wizard" },
+            h("h3", {}, "Guided session"),
+            h("div", { class: "cards two" }, pick(1), pick(2)),
+            h("ol", { class: "wiz" },
+              h("li", { id: "wiz1" }, h("b", {}, "Connect the headset"),
+                h("p", { class: "note" }, "EMOTIV Launcher open and signed in, Insight switched on. Then Setup \u2192 Emotiv Insight / EPOC X \u2192 Use this source."),
+                h("p", { class: "note", id: "wiz1s" }),
+                h("div", { class: "row" }, h("button", { class: "btn small", onclick: () => this.go("setup") }, "Open Setup"))),
+              h("li", { id: "wiz2" }, h("b", {}, "Participant"),
+                h("label", { class: "field" }, "Participant code (no names)", h("input", { type: "text", id: "pcode", value: store.get("pcode", "P01"), maxlength: 32, autocomplete: "off", spellcheck: "false",
+                  oninput: () => this.paintWizard(),
+                  onchange: () => { store.set("pcode", this.code); this.wiz.check = null; this.wiz.mainDone = false; this.loadPersonalStates(); this.paintWizard(); } })),
+                h("label", { class: "check" }, h("input", { type: "checkbox", id: "consent", onchange: () => this.paintWizard() }),
+                  h("span", {}, "Signed consent is on file (and parent or guardian permission plus assent if under 18), as approved by the IRB."))),
+              h("li", { id: "wiz3" }, h("b", {}, "Fit the headset"),
+                h("p", { class: "note" }, "Seat the arms behind the ears and the front sensors (AF3, AF4) on the forehead; press each sensor gently against the skin. Hair under a sensor is the usual cause of grey or red. Ask them to sit still with the jaw relaxed."),
+                h("label", { class: "check" }, h("input", { type: "checkbox", id: "fitOk", onchange: () => this.paintWizard() }),
+                  h("span", {}, "All 5 sensors are green in the EMOTIV Launcher."))),
+              h("li", { id: "wiz4" }, h("b", {}, "Blink and jaw check (2 min)"),
+                h("p", { class: "note" }, "Say: \u201cFor two minutes, sit still, then blink and gently clench your jaw when the screen asks.\u201d The app checks the recording as soon as it ends."),
+                h("p", { class: "note", id: "wiz4s" }),
+                h("div", { class: "row" }, h("button", { class: "btn primary", id: "wizCheck", onclick: () => this.wizardRun("face") }, "Start check"),
+                  h("button", { class: "btn small", id: "wizSkip", hidden: true, onclick: () => { this.wiz.override = true; this.paintWizard(); } }, "Continue anyway"))),
+              h("li", { id: "wiz5" }, h("b", { id: "wiz5t" }),
+                h("p", { class: "note", id: "wiz5n" }),
+                h("p", { class: "note", id: "wiz5s" }),
+                h("div", { class: "row" }, h("button", { class: "btn primary", id: "wizMain", onclick: () => this.wizardRun(WIZ_MAIN[this.wiz.session].pid) }, "Start"))),
+              h("li", { id: "wiz6" }, h("b", {}, "Finish"),
+                h("p", { class: "note", id: "wiz6n" }, "Appears when the session is done."),
+                h("div", { class: "row" }, h("button", { class: "btn", id: "wizNext", onclick: () => this.wizardReset() }, "Next participant")))),
+            h("p", { class: "err", id: "studyErr", hidden: true })),
           h("section", { class: "panel", id: "runSummary" }, h("h3", {}, "Results"), h("p", { class: "note" }, "Finished sessions appear here."))),
         h("div", { class: "cards" },
-          h("section", { class: "panel" }, h("h3", {}, "Participant"),
-            h("label", { class: "field" }, "Participant code (no names)", h("input", { type: "text", id: "pcode", value: store.get("pcode", "P01"), maxlength: 32, autocomplete: "off", spellcheck: "false", onchange: () => { store.set("pcode", this.code); this.loadPersonalStates(); } })),
-            h("label", { class: "check" }, h("input", { type: "checkbox", id: "consent" }),
-              h("span", {}, "Signed consent is on file (and parent or guardian permission if the participant is under 18), as approved by the IRB.")),
+          h("section", { class: "panel" }, h("h3", {}, "Your states"), h("div", { id: "statesReport" })),
+          h("details", { class: "panel" }, h("summary", {}, "All protocols (advanced)"),
+            list,
             h("label", { class: "check" }, h("input", { type: "checkbox", id: "recordRun", checked: true }), h("span", { id: "recordLabel" }, "Record EEG, events and ratings to this computer")),
             h("div", { class: "row" },
-              h("button", { class: "btn primary", id: "startRun", onclick: () => this.startProtocol() }, "Start session"),
+              h("button", { class: "btn", id: "startRun", onclick: () => this.startProtocol() }, "Start selected protocol"),
               h("button", { class: "btn", id: "recBtn", onclick: () => this.toggleRecording() }, "Record without protocol")),
-            h("p", { class: "err", id: "studyErr", hidden: true }),
-            h("p", { class: "note", id: "studyNote" }, "Calibrate on a calm, still baseline first; the protocol does this for you.")),
-          h("section", { class: "panel" }, h("h3", {}, "Your states"), h("div", { id: "statesReport" })),
+            h("p", { class: "note", id: "studyNote" }, "Uses the participant code and consent box above.")),
           h("section", { class: "panel" }, h("h3", {}, "Daily check-ins"), h("div", { id: "checkinReport" })),
           h("section", { class: "panel" }, h("h3", {}, "During a session"),
-            h("p", { class: "note" }, "Keep the participant still and the jaw relaxed during tasks. In the closed-loop protocol the participant doesn't see which condition is running; the world simply changes. Press Stop session at any time; data recorded so far is kept.")))));
+            h("p", { class: "note" }, "Stay out of the participant's view and keep the room quiet. If they ask about the world, say it changes on its own; don't name the condition. Press Stop session at any time; data recorded so far is kept.")))));
+  }
+
+  // ---------------------------------------------------------------- guided participant session
+  wiz: { session: 1 | 2; check: { id: string; ready: boolean; text: string } | null; checking: boolean; override: boolean; mainDone: boolean; mainId: string | null; mainMsg: string; error: string } =
+    { session: store.get<number>("wizSession", 1) === 2 ? 2 : 1, check: null, checking: false, override: false, mainDone: false, mainId: null, mainMsg: "", error: "" };
+  lastSessionId: string | null = null;
+  wizRunning: string | null = null;
+
+  wizardSteps() {
+    const code = ($<HTMLInputElement>("pcode")?.value ?? "").trim();
+    const s1 = this.sourceKind === "emotiv" && !!this.engine.C;
+    const s2 = /^[A-Za-z0-9_-]+$/.test(code) && !!$<HTMLInputElement>("consent")?.checked;
+    const s3 = !!$<HTMLInputElement>("fitOk")?.checked;
+    const s4 = !!this.wiz.check && (this.wiz.check.ready || this.wiz.override);
+    return [s1, s2, s3, s4, this.wiz.mainDone];
+  }
+
+  paintWizard() {
+    if (!document.getElementById("wizard")) return;
+    const done = this.wizardSteps();
+    const next = done.indexOf(false);                 // first unfinished step; -1 when all done
+    const busy = this.protocolActive || this.wiz.checking;
+    for (let i = 0; i < 6; i++) {
+      const li = $(`wiz${i + 1}`);
+      const state = i < 5 && done[i] ? "done" : (i === (next < 0 ? 5 : next) ? "now" : "todo");
+      li.dataset.state = state;
+      if (state === "now") li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
+    }
+    $("wizS1").setAttribute("aria-pressed", String(this.wiz.session === 1));
+    $("wizS2").setAttribute("aria-pressed", String(this.wiz.session === 2));
+    $("wiz1s").textContent = this.sourceKind === "emotiv"
+      ? (this.engine.C ? `Connected: ${this.engine.channels.join(", ")}.` : "Emotiv selected, waiting for data\u2026")
+      : (this.sourceKind === "sim" ? "The simulator is running. It is not real data: switch to the Emotiv Insight." : `Source is ${this.sourceKind}, not the Emotiv Insight.`);
+    const ready4 = done[0] && done[1] && done[2];
+    ($("wizCheck") as HTMLButtonElement).disabled = !ready4 || busy;
+    $("wizCheck").textContent = this.wiz.checking ? "Checking\u2026" : (this.wiz.check ? "Repeat check" : "Start check");
+    $("wiz4s").textContent = this.wiz.error || (this.wiz.check ? this.wiz.check.text : "");
+    $("wiz4s").className = this.wiz.check && !this.wiz.check.ready && !this.wiz.override ? "err" : "note";
+    $("wizSkip").hidden = !(this.wiz.check && !this.wiz.check.ready && !this.wiz.override);
+    const m = WIZ_MAIN[this.wiz.session];
+    $("wiz5t").textContent = `${m.label}: ${m.task}`;
+    $("wiz5n").textContent = m.say;
+    ($("wizMain") as HTMLButtonElement).disabled = !(ready4 && done[3]) || busy;
+    $("wizMain").textContent = this.wiz.mainDone ? "Run again" : `Start ${m.task.toLowerCase()}`;
+    $("wiz5s").textContent = this.wiz.mainDone ? `Saved as ${this.wiz.mainId ?? "a new session"}.` : this.wiz.mainMsg;
+    $("wiz6n").textContent = this.wiz.mainDone ? m.finish : "Appears when the session is done.";
+  }
+
+  async wizardRun(pid: string) {
+    const p = PROTOCOLS.find(x => x.id === pid);
+    if (!p) return;
+    if (!this.link.available) { this.showErr("studyErr", "Start the Emotif server (python -m emotif.server) so the session is recorded."); return; }
+    $<HTMLInputElement>("recordRun").checked = true;
+    this.wiz.error = "";
+    this.wizRunning = pid;
+    await this.startProtocol(p);
+    if (!this.protocolActive) this.wizRunning = null;   // didn't start (error shown)
+    else if (pid !== "face" && this.wiz.check) this.marker("face_check", { session: this.wiz.check.id, ready: this.wiz.check.ready, override: this.wiz.override });
+    this.paintWizard();
+  }
+
+  async wizardAfterRun(r: RunResult) {
+    const pid = this.wizRunning;
+    this.wizRunning = null;
+    if (!pid || r.protocol !== pid) { this.paintWizard(); return; }
+    if (pid === "face") {
+      this.wiz.check = null; this.wiz.override = false;
+      if (r.aborted || !this.lastSessionId) { this.wiz.error = "The check was stopped before the end. Press Start check again."; this.paintWizard(); return; }
+      this.wiz.checking = true; this.paintWizard();
+      const id = this.lastSessionId;
+      try {
+        const q = await this.link.api<QaResult>(`/api/sessions/${encodeURIComponent(id)}/qa`);
+        this.wiz.check = { id, ready: !!q.ready, text: qaText(q) };
+      } catch (e) {
+        this.wiz.error = `Couldn't check the recording: ${(e as Error).message}`;
+      }
+      this.wiz.checking = false;
+    } else if (!r.aborted) {
+      this.wiz.mainDone = true; this.wiz.mainId = this.lastSessionId; this.wiz.mainMsg = "";
+    } else {
+      this.wiz.mainMsg = `Stopped early. The data so far is saved${this.lastSessionId ? ` as ${this.lastSessionId}` : ""}; press Start to run the full session again.`;
+    }
+    this.paintWizard();
+  }
+
+  wizardReset() {
+    $<HTMLInputElement>("consent").checked = false;
+    $<HTMLInputElement>("fitOk").checked = false;
+    const code = $<HTMLInputElement>("pcode");
+    const m = /^(.*?)(\d+)$/.exec(code.value.trim());
+    if (m) { code.value = m[1] + String(Number(m[2]) + 1).padStart(m[2].length, "0"); store.set("pcode", code.value); }
+    this.wiz = { ...this.wiz, check: null, checking: false, override: false, mainDone: false, mainId: null, mainMsg: "", error: "" };
+    this.loadPersonalStates();
+    this.paintWizard();
   }
 
   // ---------------------------------------------------------------- arm view
@@ -760,6 +911,7 @@ class App {
     } catch (e) { this.showErr("studyErr", (e as Error).message); return false; }
   }
   async stopRecording() {
+    if (this.recording) this.lastSessionId = this.recording.id;
     if (this.pendingSamples.length) { this.link.send({ type: "samples", samples: this.pendingSamples }); this.pendingSamples = []; }
     try { await this.link.api("/api/session/stop", {}); } catch { /* server gone */ }
     this.recording = null;
@@ -803,6 +955,7 @@ class App {
     if (r.protocol === "states" && !r.aborted) await this.calibratePersonalStates(r);
     if (r.protocol === "checkin" && !r.aborted) this.saveCheckin(r);
     this.go("study");
+    await this.wizardAfterRun(r);
   }
 
   // ---------------------------------------------------------------- personal states and daily check-ins

@@ -262,9 +262,54 @@ async def test_osc_bridge():
     print("osc bridge OK: /emotif/state and /emotif/hold reach a UDP listener")
 
 
+async def test_session_qa_endpoint(tmp):
+    """GET /api/sessions/{id}/qa runs research/session_qa.py on a finished recording (the app's guided session):
+    a good blink-and-jaw check passes, one without blinks fails, bad ids are 404, a running recording is refused."""
+    import numpy as np
+    from emotif.recorder import Recorder
+    rng = np.random.default_rng(3)
+    hub = server.Hub(sessions_dir=os.path.join(tmp, "qa_sessions"))
+    chans, fs = datasets.INSIGHT_CHANNELS, 128.0
+
+    def record(code, blink_amp):
+        rec = Recorder(hub.sessions_dir, code, fs, chans, "test", "face")
+        def seg(sec, blinks=False, clench=False):
+            n = int(sec * fs); tt = np.arange(n) / fs
+            x = rng.normal(0, 6, (5, n)) + 8 * np.sin(2 * np.pi * 10 * tt)[None]
+            if blinks:
+                for b in np.arange(1, sec, 1.0):
+                    x[[0, 4]] += blink_amp * np.exp(-((tt - b) ** 2) / (2 * 0.06 ** 2))[None]
+            if clench:
+                x[[1, 3]] += 40 * rng.normal(0, 1, (2, n)) * (np.floor(tt / 2) % 2 == 0)[None]
+            return x
+        rec.samples(seg(30).T.tolist())
+        for blk, x in (("eyes_open", seg(20)), ("blinks", seg(20, blinks=True)), ("clench", seg(20, clench=True))):
+            rec.event("block_start", json.dumps({"block": blk}))
+            rec.samples(x.T.tolist())
+            rec.event("block_end", json.dumps({"block": blk}))
+        rec.close()
+        return rec.id
+
+    good, weak = record("G01", 140.0), record("W01", 0.0)
+    async with TestClient(TestServer(server.build_app(hub))) as c:
+        q = await (await c.get(f"/api/sessions/{good}/qa")).json()
+        assert q["ready"] and q["contact_ok"] and q["checks"]["blink_index"]["pass"] and q["checks"]["jaw_index"]["pass"], q
+        q = await (await c.get(f"/api/sessions/{weak}/qa")).json()
+        assert not q["ready"] and not q["checks"]["blink_index"]["pass"] and q["checks"]["jaw_index"]["pass"], q["checks"]
+        assert (await c.get("/api/sessions/nope/qa")).status == 404
+        assert (await c.get("/api/sessions/..%2F..%2Fetc/qa")).status == 404
+        hub.stream = {"fs": fs, "channels": chans, "label": "t", "origin": "client"}
+        sid = hub.start_recording({"participant": "R01", "consent": True})
+        r = await c.get(f"/api/sessions/{sid}/qa")
+        assert r.status == 400 and "still recording" in (await r.json())["error"]
+        hub.stop_recording()
+    print("server: session check endpoint OK (pass, blink fail, bad id, still recording)")
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         asyncio.run(test_streaming_and_recording(tmp))
+        asyncio.run(test_session_qa_endpoint(tmp))
     asyncio.run(test_arm_api())
     asyncio.run(test_osc_bridge())
     test_governor_speed_limit()

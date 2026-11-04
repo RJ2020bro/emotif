@@ -7,6 +7,7 @@ Everything binds to localhost by default: EEG is health data and the arm is a ph
 """
 import argparse
 import asyncio
+import importlib.util
 import json
 import os
 import threading
@@ -192,6 +193,20 @@ class Hub:
         return ws
 
 
+_QA = None
+
+
+def _session_qa():
+    """research/session_qa.py, loaded by path so the server doesn't need research/ on sys.path."""
+    global _QA
+    if _QA is None:
+        spec = importlib.util.spec_from_file_location("emotif_session_qa", os.path.join(ROOT, "research", "session_qa.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _QA = mod
+    return _QA
+
+
 def json_error(msg, status=400):
     return web.json_response({"ok": False, "error": msg}, status=status)
 
@@ -256,6 +271,23 @@ def build_app(hub=None):
     @r.get("/api/sessions")
     async def s_list(_):
         return web.json_response({"sessions": recorder.list_sessions(hub.sessions_dir)})
+
+    @r.get("/api/sessions/{sid}/qa")
+    async def s_qa(request):
+        """Blink/jaw/contact check of a finished session (research/session_qa.py), for the app's guided session."""
+        sid = request.match_info["sid"]
+        if "/" in sid or "\\" in sid or ".." in sid:
+            raise web.HTTPNotFound()
+        folder = os.path.join(hub.sessions_dir, sid)
+        if not os.path.isfile(os.path.join(folder, "meta.json")):
+            raise web.HTTPNotFound()
+        if hub.rec and hub.rec.id == sid:
+            return json_error("this session is still recording")
+        try:
+            res = await asyncio.get_running_loop().run_in_executor(None, _session_qa().qa, folder)
+        except Exception as e:  # unreadable or too-short recording
+            return json_error(f"check failed: {e}")
+        return web.json_response(res)
 
     @r.get("/api/sessions/{sid}/{name}")
     async def s_file(request):

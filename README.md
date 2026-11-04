@@ -65,6 +65,7 @@ python -m emotif.server            # open http://localhost:8000
 - **Emotiv and others:** publish an LSL stream from the vendor app, then Setup → *Lab Streaming Layer*; or export EDF and play the file.
 - Full list: `docs/HARDWARE.md`.
 - **Fit:** Setup → *Electrode fit* tells you, per electrode, what to fix (no contact, mains hum, muscle, drift).
+- **Participant sessions (guided):** Study → *Guided session* → pick Session 1 (calibration) or Session 2 (stress and recovery) and follow the six steps: connect the Insight, participant code + consent, fit (all sensors green), the 2-minute blink and jaw check (the server scores it with `research/session_qa.py` and shows pass/fail with what to fix), the main task, then the finish/debrief text and *Next participant*. Each step unlocks the next; every protocol is recorded automatically.
 - **Headset check:** Study → *Headset check* (4 min, with an eyes-closed minute) or *Blink and jaw check* (1 min), then `python research/session_qa.py data/sessions/<folder>`: alpha eyes closed/open ≥ 1.5 at Pz/T7/T8 (when run), blink index ≥ 2 at AF3/AF4, jaw power ≥ 3 at T7/T8, every electrode ≤ 20 % unusable windows.
 - **Every session:** sit still for the 30 s resting baseline. It calibrates the cleaning and the decoder to you.
 - **RoArm-M2-S:** Robot arm → USB or Wi-Fi (192.168.4.1 on the arm's own network). Tick the safety box, then Enable motion.

@@ -187,6 +187,7 @@ def run_with_server(browser, errors):
         assert labels == {"calm1": {"valence": 1, "arousal": -1}, "stress1": {"valence": -1, "arousal": 1},
                           "watch1": {"valence": 1, "arousal": -1}}, labels   # SAM 3 -> low (1-3 low, 4-6 mid, 7-9 high)
         print(f"protocol: 3 rated blocks recorded to {sid}, reloaded for training with SAM labels")
+        check_guided_session(page, port, sessions)
 
         # ---- personalization from the ratings
         page.locator("nav.nav button[data-view=models]").dispatch_event("click")
@@ -274,6 +275,49 @@ def run_with_server(browser, errors):
             srv.kill()
 
 
+def check_guided_session(page, port, sessions):
+    """Study's guided panel: steps unlock in order; the blink and jaw check records a session, the server checks it
+    and the result shows in step 4; then the main task unlocks (directly on a pass, via Continue anyway on a fail)."""
+    page.evaluate("window.emotif.go('study')")
+    page.click("#wizS1")
+    assert page.get_attribute("#wiz1", "data-state") == "now", "simulator is not the Insight"
+    assert page.is_disabled("#wizCheck") and page.is_disabled("#wizMain")
+    page.evaluate("window.emotif.sourceKind = 'emotiv'; window.emotif.paintWizard()")      # sim data stands in for the Insight
+    assert page.get_attribute("#wiz1", "data-state") == "done"
+    page.fill("#pcode", "G07")
+    page.dispatch_event("#pcode", "change")
+    page.evaluate("document.getElementById('consent').checked = false; window.emotif.paintWizard()")
+    assert page.get_attribute("#wiz2", "data-state") == "now"
+    page.check("#consent")
+    assert page.get_attribute("#wiz3", "data-state") == "now" and page.is_disabled("#wizCheck")
+    page.check("#fitOk")
+    assert page.get_attribute("#wiz4", "data-state") == "now" and not page.is_disabled("#wizCheck") and page.is_disabled("#wizMain")
+    page.click("#wizCheck")
+    wait(page, "window.emotif.protocolActive && !!window.emotif.recording", 10, "check recording")
+    page.locator(".runner button.btn.primary").dispatch_event("click")
+    page.evaluate("""window.__wizDrive = setInterval(() => { const t = document.querySelector('.runner h2')?.textContent;
+      if (t === 'Blink') window.emotif.sim.doubleBlink(); if (t === 'Clench') window.emotif.sim.clench(1.5); }, 500)""")
+    wait(page, "!window.emotif.protocolActive", 150, "check finished")
+    page.evaluate("clearInterval(window.__wizDrive)")
+    wait(page, "/passed/i.test(document.getElementById('wiz4s').textContent)", 60, "check result")
+    res = page.inner_text("#wiz4s")
+    assert "blinks" in res and "jaw" in res, res
+    if res.startswith("Not passed"):
+        assert page.is_disabled("#wizMain") and page.is_visible("#wizSkip")
+        page.click("#wizSkip")
+    assert page.get_attribute("#wiz5", "data-state") == "now" and not page.is_disabled("#wizMain"), res
+    assert "Personal calibration" in page.inner_text("#wiz5t")
+    page.click("#wizS2")
+    assert "Stress and recovery" in page.inner_text("#wiz5t")
+    sess = get_json(port, "/api/sessions")["sessions"]
+    assert sess[0]["participant"] == "G07" and sess[0]["protocol"] == "face", sess[0]
+    page.click("#wizNext")
+    assert page.input_value("#pcode") == "G08" and not page.is_checked("#consent") and page.get_attribute("#wiz2", "data-state") == "now"
+    page.click("#wizS1")
+    page.evaluate("window.emotif.sourceKind = 'sim'; window.emotif.paintWizard()")
+    print(f"guided session OK: steps unlock in order, check recorded and scored by the server ({res})")
+
+
 def check_brain_vs_face(page):
     """Brain vs face panel: both decoders report, and a simulated jaw clench shows up in the face strip.
     (Whether the brain-only decoder moves less is tested on real data and known-answer data, not here: the simulator's
@@ -352,7 +396,7 @@ def check_personal_states(page):
     model = subprocess.run(["node", "-e", code, os.path.join(dist, "states.cjs"), os.path.join(dist, "montage.cjs")],
                            capture_output=True, text=True, check=True).stdout
     page.evaluate("window.emotif.go('study')")
-    names = page.inner_text("#protoList")
+    names = page.text_content("#protoList")
     assert all(n in names for n in ("Personal state calibration", "Daily check-in", "Headset check", "Blink and jaw check")), names
     page.fill("#pcode", "T99")
     page.dispatch_event("#pcode", "change")

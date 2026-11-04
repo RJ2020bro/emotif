@@ -311,3 +311,16 @@ body.demo .live-side, body.demo .timeline { opacity: .9; }
 .mind-bar #mindPos { left: 50%; background: var(--accent); }
 .mind-bar #mindNeg { right: 50%; background: var(--ink-2); }
 .mind-hint { color: var(--ink-2); font-size: 12px; }
+
+/* guided participant session */
+.cards.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 560px) { .cards.two { grid-template-columns: 1fr; } }
+ol.wiz { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; counter-reset: wiz; }
+ol.wiz > li { counter-increment: wiz; position: relative; padding: 10px 12px 10px 44px; border: 1px solid var(--line); border-radius: var(--r); display: grid; gap: 6px; }
+ol.wiz > li::before { content: counter(wiz); position: absolute; left: 12px; top: 10px; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font: 700 12px var(--font-sans); border: 2px solid var(--line); color: var(--muted); }
+ol.wiz > li[data-state="now"] { border-color: var(--accent); border-width: 2px; padding: 9px 11px 9px 43px; }
+ol.wiz > li[data-state="now"]::before { border-color: var(--accent); color: var(--accent); }
+ol.wiz > li[data-state="done"]::before { content: "\2713"; background: var(--ok, #2e7d32); border-color: var(--ok, #2e7d32); color: #fff; }
+ol.wiz > li[data-state="todo"] { border-style: dashed; }
+details.panel > summary { cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
