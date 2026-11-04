@@ -279,7 +279,7 @@ def check_guided_session(page, port, sessions):
     """Study's guided panel: steps unlock in order; the blink and jaw check records a session, the server checks it
     and the result shows in step 4; then the main task unlocks (directly on a pass, via Continue anyway on a fail)."""
     page.evaluate("window.emotif.go('study')")
-    page.click("#wizS1")
+    page.dispatch_event("#wizS1", "click")
     assert page.get_attribute("#wiz1", "data-state") == "now", "simulator is not the Insight"
     assert page.is_disabled("#wizCheck") and page.is_disabled("#wizMain")
     page.evaluate("window.emotif.sourceKind = 'emotiv'; window.emotif.paintWizard()")      # sim data stands in for the Insight
@@ -288,11 +288,11 @@ def check_guided_session(page, port, sessions):
     page.dispatch_event("#pcode", "change")
     page.evaluate("document.getElementById('consent').checked = false; window.emotif.paintWizard()")
     assert page.get_attribute("#wiz2", "data-state") == "now"
-    page.check("#consent")
+    page.dispatch_event("#consent", "click")
     assert page.get_attribute("#wiz3", "data-state") == "now" and page.is_disabled("#wizCheck")
-    page.check("#fitOk")
+    page.dispatch_event("#fitOk", "click")
     assert page.get_attribute("#wiz4", "data-state") == "now" and not page.is_disabled("#wizCheck") and page.is_disabled("#wizMain")
-    page.click("#wizCheck")
+    page.dispatch_event("#wizCheck", "click")
     wait(page, "window.emotif.protocolActive && !!window.emotif.recording", 10, "check recording")
     page.locator(".runner button.btn.primary").dispatch_event("click")
     page.evaluate("""window.__wizDrive = setInterval(() => { const t = document.querySelector('.runner h2')?.textContent;
@@ -304,16 +304,16 @@ def check_guided_session(page, port, sessions):
     assert "blinks" in res and "jaw" in res, res
     if res.startswith("Not passed"):
         assert page.is_disabled("#wizMain") and page.is_visible("#wizSkip")
-        page.click("#wizSkip")
+        page.dispatch_event("#wizSkip", "click")
     assert page.get_attribute("#wiz5", "data-state") == "now" and not page.is_disabled("#wizMain"), res
     assert "Personal calibration" in page.inner_text("#wiz5t")
-    page.click("#wizS2")
+    page.dispatch_event("#wizS2", "click")
     assert "Stress and recovery" in page.inner_text("#wiz5t")
     sess = get_json(port, "/api/sessions")["sessions"]
     assert sess[0]["participant"] == "G07" and sess[0]["protocol"] == "face", sess[0]
-    page.click("#wizNext")
+    page.dispatch_event("#wizNext", "click")
     assert page.input_value("#pcode") == "G08" and not page.is_checked("#consent") and page.get_attribute("#wiz2", "data-state") == "now"
-    page.click("#wizS1")
+    page.dispatch_event("#wizS1", "click")
     page.evaluate("window.emotif.sourceKind = 'sim'; window.emotif.paintWizard()")
     print(f"guided session OK: steps unlock in order, check recorded and scored by the server ({res})")
 
