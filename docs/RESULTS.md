@@ -121,13 +121,14 @@ Same windows and features as 3c–3d, evaluated the way many papers do (windows 
 |---|---|---|---|---|---|---|---|---|
 | GAMEEMO, 4 games (0.25) | 0.86 | 0.38 | 0.85 | 0.55 | 0.88 | **0.84** | 0.75 | 0.23 (0.009) |
 | Stress, Insight (0.5) | 0.76 | **0.75** | 0.76 | 0.67 | 0.58 | **0.60** | 0.56 | 0.51 (0.029) |
-| Depression PHQ-9 (0.5) | 0.83 | **0.83** | — | 0.80 | 0.55 | — | — | 0.68 (0.032) |
-| Anxiety GAD-7 (0.5) | 0.82 | **0.81** | — | 0.79 | 0.49 | — | — | 0.66 (0.026) |
-| Sleepiness VAS (0.5) | 0.84 | **0.82** | — | 0.80 | 0.54 | — | — | 0.69 (0.020) |
+| Depression PHQ-9 (0.5) | 0.83 | **0.83** | 0.60 | 0.80 | 0.55 | 0.50 | — | 0.68 (0.032) |
+| Anxiety GAD-7 (0.5) | 0.82 | **0.81** | 0.58 | 0.79 | 0.49 | 0.47 | — | 0.66 (0.026) |
+| Sleepiness VAS (0.5) | 0.84 | **0.82** | 0.59 | 0.80 | 0.54 | 0.48 | — | 0.69 (0.020) |
 
 *Scrambled labels*: every recording gets a random class (balanced, independent of its true label; 3 draws averaged). The labels mean nothing, so accuracy above chance is recognition of the recording.
 - **Stress and the three trait screens: the random-split accuracy is recording identity.** Scrambled labels score the same as the real ones (0.75 vs 0.76, 0.83 vs 0.83, 0.81 vs 0.82, 0.82 vs 0.84). One 2 s window identifies its recording 51–69 % of the time (chance 2–3 %). The depression paper on this dataset reports 98.43 % with 5-fold CV on 5 s samples.
 - **GAMEEMO: the four games are separable for new people, but mostly by the face.** Eye and muscle indices alone (3 per electrode, no brain rhythms) name the game for new people 84 % of the time (chance 25 %), close to the full EEG's 88 %. Removing what the face indices predict (linearly, with squares) leaves 0.75 for a random forest, which can still exploit nonlinear face structure; the linear brain-only decoder is at 0.35 four-class. Training on the first 70 % of each game and testing on the last 30 % drops to 0.55, so the separating pattern changes over the course of each game and is shared across players: consistent with game-specific, time-locked eye and face behaviour (and possibly time on task, if the games were played in a fixed order; the dataset page doesn't say). Published GAMEEMO results of 94–99.99 % (random or unstated splits) therefore say little about emotion.
+- **Trait screens: the face doesn't name the trait either.** Face indices alone score 0.58–0.60 on a random split (the face also fingerprints a recording) and 0.47–0.50 for new people (chance 0.5), so nothing on these three datasets, brain or face, carries to a new person.
 - Logistic regression shows the same pattern at lower levels (stress: random 0.64, scrambled 0.57, new people 0.53, face only on new people 0.62).
 - Tool: the same checks as a package, `facecheck/` (`facecheck audit data.npz`), with known-answer tests.
 
