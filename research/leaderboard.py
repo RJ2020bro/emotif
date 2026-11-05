@@ -83,7 +83,13 @@ def load(name):
     person = d["win_person"]
     y = (d["y"][person] > 0).astype(int)
     rec = np.array([f"p{p}" for p in person])
-    return {"X": X, "y": y, "rec": rec, "subj": rec, "face": None, "face_live": None}
+    wf = CACHE[name].replace("_cache.npz", "_winface.npz")       # research/trait_window_face.py
+    face = None
+    if os.path.exists(wf):
+        f = np.load(wf)
+        assert np.array_equal(f["win_person"], person), f"{wf} is not aligned with {CACHE[name]}"
+        face = f["face"]
+    return {"X": X, "y": y, "rec": rec, "subj": rec, "face": face, "face_live": None}
 
 
 def permuted_labels(y, rec, subj, rng):
