@@ -11,3 +11,6 @@ data/external/
 .env
 facecheck/build/
 *.egg-info/
+
+# local Python environment
+.venv/
