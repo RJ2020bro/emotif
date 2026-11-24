@@ -6,6 +6,9 @@ __pycache__/
 # participant data: never public (IRB consent: recordings stay on one laptop)
 data/sessions/
 models/personal_*.json
+# synthetic (simulated) sessions and the models trained on them: never research data
+data/synthetic*/
+models/synthetic/
 # third-party datasets: re-download with scripts/get_*.py / get_*.sh (licences, 1.7 GB)
 data/external/
 .env

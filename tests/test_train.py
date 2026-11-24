@@ -361,6 +361,79 @@ def session_qa_check(d, rng):
           f"jaw x{g['checks']['jaw_index']['best_temporal']}); no alpha reactivity fails; blink-and-jaw-only check ready")
 
 
+def synthetic_insight_check(d, sessions_root):
+    """scripts/synth_insight.py writes recorder-format SYNTHETIC Insight sessions that session_qa passes and the
+    personal state trainer learns (well above chance), while --effect 0 (no state differences) learns nothing.
+    scripts/train_synthetic.py refuses real recordings and refuses to write next to the real models."""
+    import csv as _csv
+    import json as _json
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    sys.path.insert(0, os.path.join(ROOT, "research"))
+    import session_qa as QA
+    import synth_insight as SI
+    import train_synthetic as TS
+    root = os.path.join(d, "synthetic")
+    made = SI.main(["--participants", "2", "--protocol", "face,check,states,induction", "--block-sec", "20", "--seed", "3", "--out", root])
+    assert len(made) == 8 and all(os.path.basename(m).startswith("synthetic-") for m in made)
+    try:
+        datasets.load_sessions(root, labels="state")
+        raise AssertionError("load_sessions must skip synthetic sessions unless asked")
+    except FileNotFoundError as e:
+        assert "synthetic" in str(e)
+    assert len(datasets.load_sessions(root, labels="state", synthetic=True)) == 2 * 18
+    for m in made:
+        meta = _json.load(open(os.path.join(m, "meta.json")))
+        assert meta["synthetic"] is True and meta["fs"] == 128.0 and meta["channels"] == datasets.INSIGHT_CHANNELS, meta
+        with open(os.path.join(m, "eeg.csv"), newline="") as fh:
+            rows = list(_csv.reader(fh))
+        assert rows[0] == ["time_s", *datasets.INSIGHT_CHANNELS, "valence_label", "arousal_label"] and len(rows) - 1 == meta["n_samples"]
+        with open(os.path.join(m, "events.csv"), newline="") as fh:
+            ev = [(r[1], _json.loads(r[2])) for r in list(_csv.reader(fh))[1:]]
+        starts = [v["block"] for k, v in ev if k == "block_start"]
+        assert starts and starts == [v["block"] for k, v in ev if k == "block_end"], m
+        if meta["protocol"] == "states":
+            assert len([b for b in starts if not b.startswith(("rest", "cooldown"))]) == 18
+            assert len([1 for k, _ in ev if k == "intensity"]) == 18
+        if meta["protocol"] == "induction":
+            assert len([1 for k, _ in ev if k == "sam"]) == 4
+    again = SI.main(["--participants", "1", "--protocol", "face", "--seed", "3", "--out", os.path.join(d, "synthetic_again")])
+    assert open(os.path.join(again[0], "eeg.csv")).read() == open(os.path.join(root, "synthetic-face-SYN01", "eeg.csv")).read(), "seeded output is reproducible"
+    for m in made:
+        r = QA.qa(m)
+        if r["session"].startswith(("synthetic-face", "synthetic-check")):
+            assert r["ready"] and r["contact_ok"], r
+            if "check" in r["session"]:
+                assert 1.5 <= r["checks"]["alpha_reactivity"]["best_posterior"] < 8, r["checks"]
+    out = os.path.join(d, "synthetic_models")
+    rep = TS.main(["--sessions", root, "--out", out, "--perms", "19"])
+    ps = rep["personal_states"]
+    assert len(ps) == 2 and all(v["bacc"] > 0.6 for v in ps.values()), ps          # chance 1/6
+    assert all(len(v["passing"]) >= 4 for v in ps.values()), ps
+    m = _json.load(open(os.path.join(out, "personal_states_SYN01.json")))
+    assert m["format"] == "emotif-states-v1" and m["synthetic"] is True and len(m["head"]["layers"][0]["W"]) == M.N_FEATURES + 2 * FACE.N_REGION_FACE
+    aff = _json.load(open(os.path.join(out, "affect_synthetic.json")))       # 2 people only: trained and exported, accuracy not tested
+    check_export(aff)
+    assert aff["synthetic"] is True and set(rep["affect"]) == {"valence", "arousal"}, rep["affect"]
+    null_root = os.path.join(d, "synthetic_null")
+    SI.main(["--participants", "2", "--protocol", "states", "--block-sec", "20", "--seed", "3", "--effect", "0", "--out", null_root])
+    nul = TS.main(["--sessions", null_root, "--out", os.path.join(d, "synthetic_null_models"), "--perms", "19", "--skip-affect"])["personal_states"]
+    assert all(v["bacc"] < 0.4 and len(v["passing"]) <= 1 for v in nul.values()), nul
+    for bad in (["--sessions", sessions_root, "--out", out], ["--sessions", root, "--out", os.path.join(ROOT, "models")]):
+        try:
+            TS.main(bad)
+            raise AssertionError(f"train_synthetic accepted {bad}")
+        except SystemExit as e:
+            assert "synthetic" in str(e), e
+    try:
+        SI.main(["--participants", "1", "--protocol", "face", "--out", os.path.join(ROOT, "results", "x")])
+        raise AssertionError("synth_insight wrote under results/")
+    except SystemExit:
+        pass
+    print(f"synthetic Insight OK: recorder-format sessions marked synthetic, QA ready, reproducible from the seed; personal states "
+          "held-out accuracy " + ", ".join(f"{x['bacc']:.2f}" for x in ps.values()) + " (chance 0.17), "
+          "null (--effect 0) " + ", ".join(f"{x['bacc']:.2f}" for x in nul.values()) + "; real sessions and real model folders refused")
+
+
 def main():
     warnings.filterwarnings("ignore")
     brain_known_answer()
@@ -387,6 +460,7 @@ def main():
         state_loaders(d, rng)
         personal_states_pipeline(d, rng)
         session_qa_check(d, rng)
+        synthetic_insight_check(d, paths["session"])
         leaderboard_check(rng)
         # brain-only model end to end through train.py: face indices, folded export, hold threshold
         m = train.main(["--data", f"dreamer:{paths['dreamer']}", "--out", os.path.join(d, "brain.json"), "--model", "brain", "--cv", "loso"])

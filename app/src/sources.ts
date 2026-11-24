@@ -1,6 +1,9 @@
 // Signal sources. Each calls onMeta(fs, channels, label) once, then onRows(rows) with raw µV samples.
 import { DEVICES, position } from "./montage";
 import { parseEdf } from "./edf";
+import { STATES, type StateName } from "./states";
+import { mulberry32, type VA } from "./director";
+import SYNTH_JSON from "../../emotif/data/synthetic_states.json";
 
 export type SourceSink = {
   onMeta: (fs: number, channels: string[], label: string) => void;
@@ -11,19 +14,11 @@ export type SourceSink = {
 export interface Source { readonly kind: string; start(sink: SourceSink): Promise<void> | void; stop(): void }
 
 // ------------------------------------------------------------------ simulator / virtual participant
-let spare: number | null = null;
-function gauss(): number {
-  if (spare !== null) { const g = spare; spare = null; return g; }
-  let u = 0, v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
-  const r = Math.sqrt(-2 * Math.log(u));
-  spare = r * Math.sin(2 * Math.PI * v);
-  return r * Math.cos(2 * Math.PI * v);
-}
+// SYNTHETIC EEG: nothing the simulator produces is a measurement of a brain. Its parameters live in
+// emotif/data/synthetic_states.json, shared with scripts/synth_insight.py (the offline generator).
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 
-export type SimMode = "tour" | "manual" | "participant";
+export type SimMode = "tour" | "manual" | "participant" | "story";
 export const SIM_MONTAGES: Record<string, { label: string; channels: string[] }> = {
   lab8: { label: "8-channel cap (Fp1 Fp2 F7 F3 F4 F8 O1 O2)", channels: ["Fp1", "Fp2", "F7", "F3", "F4", "F8", "O1", "O2"] },
   muse: { label: DEVICES.muse.label, channels: DEVICES.muse.channels },
@@ -31,43 +26,185 @@ export const SIM_MONTAGES: Record<string, { label: string; channels: string[] }>
   emotiv_epoc: { label: DEVICES.emotiv_epoc.label, channels: DEVICES.emotiv_epoc.channels },
   openbci_cyton: { label: DEVICES.openbci_cyton.label, channels: DEVICES.openbci_cyton.channels },
 };
-const TOUR = [{ v: 0.7, a: 0.6 }, { v: 0.65, a: -0.6 }, { v: -0.65, a: -0.55 }, { v: -0.7, a: 0.65 }];
+/** Sampling rate the simulator uses for a layout: the Emotiv Insight streams at 128 Hz, the others at 256 Hz. */
+export const simRate = (montage: string): number => (montage === "emotiv_insight" ? 128 : 256);
+const TOUR: VA[] = [{ v: 0.7, a: 0.6 }, { v: 0.65, a: -0.6 }, { v: -0.65, a: -0.55 }, { v: -0.7, a: 0.65 }];
 
-type ChState = { ar1: number; ar2: number; ph: number[]; env: number[]; fj: number; frontal: number; side: number; occ: number; temporal: number };
+const SIG_KEYS = ["delta", "theta", "thetaF", "alpha", "alphaP", "alphaF", "faa", "beta", "betaF", "betaR", "hibeta", "gamma",
+  "alphaHz", "blinkRate", "blinkSize", "emg", "roll"] as const;
+type SigKey = typeof SIG_KEYS[number];
+/** A brain signature: log-amplitude gains per band and region, alpha peak shift (Hz), blink rate and size
+ * (multipliers), jaw tension (0-1) and slow rolling eye movements (0-1). */
+export type Sig = Record<SigKey, number>;
+type Spec = {
+  bands: { hz: number[]; uv: number[] };
+  background: { slow_sd: number; slow_tau: number; fast_sd: number; fast_tau: number; white_sd: number };
+  envelope: { sd: number; tau: number; lo: number; hi: number };
+  jitter: { sd: number; tau: number };
+  posterior_alpha_boost: number;
+  blink: { uv: number; width_s: number; interval_s: [number, number]; task_interval_s: [number, number] };
+  emg: { hp_hz: number; clench_uv: number; tension_uv: number; burst_s: [number, number]; gap_s: [number, number] };
+  roll: { hz: number; uv: number; envelope_hz: number };
+  focus: { alpha: number; alpha_global_share: number; beta: number; thetaF: number; tau: number };
+  eyes_closed: { alpha: number; alphaP: number };
+  va: { alpha: number; beta: number; hibeta: number; gamma: number; theta: number; faa: number };
+  transition_tau: number;
+  states: Record<StateName, Partial<Sig> & { va: [number, number] }>;
+};
+export const SYNTH = SYNTH_JSON as unknown as Spec;
+const NEUTRAL: Sig = Object.fromEntries(SIG_KEYS.map(k => [k, k === "blinkRate" || k === "blinkSize" ? 1 : 0])) as Sig;
+/** The six personal states' signatures (on top of the neutral resting signal). */
+export const STATE_SIG = Object.fromEntries(STATES.map(s => [s, Object.fromEntries(SIG_KEYS.map(k => [k, SYNTH.states[s][k] ?? NEUTRAL[k]])) as Sig])) as Record<StateName, Sig>;
+/** Where each state sits on the affect map (shown as the simulator's dot). */
+export const STATE_VA = Object.fromEntries(STATES.map(s => [s, { v: SYNTH.states[s].va[0], a: SYNTH.states[s].va[1] }])) as Record<StateName, VA>;
+/** Valence -> frontal alpha asymmetry; arousal -> alpha down, beta and gamma up, theta slightly down. */
+export function vaSig(v: number, a: number): Sig {
+  const k = SYNTH.va;
+  return { ...NEUTRAL, alpha: k.alpha * a, beta: k.beta * a, hibeta: k.hibeta * a, gamma: k.gamma * a, theta: k.theta * a, faa: k.faa * v };
+}
 
-/** Synthetic EEG whose spectra follow a valence/arousal state:
- * valence -> frontal alpha asymmetry, arousal -> alpha down / beta up, plus 1/f background, mains hum,
- * spontaneous blinks, and on-demand double blinks and jaw clenches for testing arm control.
- * In "participant" mode the simulated person's affect drifts toward what the environment shows,
- * so closed-loop protocols can be rehearsed without a human. */
+/** "story" mode: a scripted journey that loops after the baseline, exercising the world and its brain-controlled objects. */
+export type StorySegment = { label: string; seconds: number; state?: StateName; va?: VA; focus?: number };
+export const STORY: StorySegment[] = [
+  { label: "Calm walk through the world", seconds: 25, state: "calm" },
+  { label: "Focusing to lift the crystal", seconds: 12, va: { v: 0.3, a: 0.3 }, focus: 1 },
+  { label: "Carrying it, steady", seconds: 8, va: { v: 0.3, a: 0.2 } },
+  { label: "Relaxing to set it down", seconds: 12, va: { v: 0.4, a: -0.3 }, focus: -1 },
+  { label: "Stress builds", seconds: 25, state: "stress" },
+  { label: "Recovering with slow breaths", seconds: 25, state: "calm" },
+  { label: "Joy", seconds: 25, va: { v: 0.8, a: 0.6 } },
+  { label: "Focusing to lift it again", seconds: 10, va: { v: 0.6, a: 0.4 }, focus: 1 },
+  { label: "Relaxing to set it down", seconds: 12, va: { v: 0.6, a: -0.2 }, focus: -1 },
+  { label: "Drifting toward sleep", seconds: 20, state: "drowsy" },
+  { label: "Waking up content", seconds: 6, va: { v: 0.5, a: 0 } },
+];
+export const STORY_SECONDS = STORY.reduce((s, x) => s + x.seconds, 0);
+/** Index of the story segment at `t` seconds after the baseline (the story loops). */
+export function storyIndex(t: number): number {
+  let u = ((t % STORY_SECONDS) + STORY_SECONDS) % STORY_SECONDS;
+  for (let i = 0; i < STORY.length; i++) { if (u < STORY[i].seconds) return i; u -= STORY[i].seconds; }
+  return STORY.length - 1;
+}
+
+/** What the virtual participant does during a protocol block (participant mode). */
+export type SimBlock = StateName | "happy" | "eyes_open" | "eyes_closed" | "blinks" | "clench";
+const TASK_BLOCK: Record<string, SimBlock> = {
+  breathing: "calm", arithmetic: "stress", anticipation: "anxiety", recall_anger: "anger", recall_negative: "low_mood", drowsy: "drowsy",
+  recall_positive: "happy", rest: "eyes_open", eyes_closed: "eyes_closed", blinks: "blinks", clench: "clench",
+};
+/** The simulator block for a protocol block_start value ({ task, state }); null when the person should simply
+ * respond to the world (e.g. the closed-loop "watch" blocks). */
+export function simBlockFor(info: unknown): SimBlock | null {
+  const o = (info ?? {}) as { task?: unknown; state?: unknown };
+  if (typeof o.state === "string" && (STATES as readonly string[]).includes(o.state)) return o.state as StateName;
+  return typeof o.task === "string" && Object.prototype.hasOwnProperty.call(TASK_BLOCK, o.task) ? TASK_BLOCK[o.task] : null;
+}
+
+type ChState = {
+  ar1: number; ar2: number; ph: number[]; env: number[]; fj: number; hp: Float64Array;
+  front: number; post: number; side: number; temporal: number; blinkW: number; rollW: number;
+};
+type Biquad = { b0: number; b1: number; b2: number; a1: number; a2: number };
+/** RBJ high-pass biquad. */
+function highpass(fs: number, f0: number, q: number): Biquad {
+  const w = 2 * Math.PI * f0 / fs, cw = Math.cos(w), al = Math.sin(w) / (2 * q), a0 = 1 + al;
+  return { b0: (1 + cw) / 2 / a0, b1: -(1 + cw) / a0, b2: (1 + cw) / 2 / a0, a1: -2 * cw / a0, a2: (1 - al) / a0 };
+}
+
+/** Synthetic EEG with a 1/f background, six band oscillators whose amplitudes follow a brain signature, mains hum,
+ * spontaneous blinks, and on-demand double blinks and jaw clenches (jaw muscle activity is high-passed above
+ * 25 Hz and appears only on temporal electrodes).
+ * The signature comes from, in order of precedence: the protocol block (participant mode), `state`, the story
+ * segment (story mode), or the valence/arousal target. `focus` adds posterior alpha suppression (+1) or
+ * enhancement (-1) on top, which is what interact.ts AlphaControl reads.
+ * Modes: tour (four affect quadrants), manual (target set from outside), participant (affect drifts toward what
+ * the world shows; protocol blocks produce their state, so in-app calibrations train on it), story (scripted loop). */
 export class Simulator implements Source {
   readonly kind = "sim";
   fs = 256;
   mode: SimMode = "tour";
-  target = { v: 0, a: 0 };
-  cur = { v: 0, a: 0 };
-  envState = { v: 0, a: 0 };      // set by the environment director (participant mode)
+  target: VA = { v: 0, a: 0 };
+  cur: VA = { v: 0, a: 0 };
+  envState: VA = { v: 0, a: 0 };  // set by the environment director (participant mode)
   responsiveness = 0.08;          // per second
   calibSec = 30;
   montage = "lab8";
+  /** Personal state to produce; overrides valence/arousal targeting (and the story) when set. */
+  state: StateName | null = null;
+  /** Brain control in [-1, 1]: +1 focused (posterior alpha well below baseline), -1 relaxed (well above). Smoothed over ~1 s. */
+  focus = 0;
+  /** Seed for a reproducible signal; null = Math.random. Read by start(). */
+  seed: number | null = null;
+  private blk: SimBlock | null = null; private blkT0 = 0;
   private t = 0; private timer: number | null = null; private t0 = 0; private emitted = 0;
   private st: ChState[] = []; private channels: string[] = [];
-  private nextBlink = 5; private blinkTimes: number[] = []; private clenchUntil = -1;
+  private nextBlink = 5; private nextTaskBlink = 0; private blinkTimes: { t: number; amp: number }[] = []; private clenchUntil = -1;
+  private burstUntil = -1; private nextBurst = 0;
+  private rnd: () => number = Math.random; private spare: number | null = null;
+  private sig: Sig = { ...NEUTRAL }; private focusCur = 0; private ecCur = 0; private active: StateName | null = null;
+  private hum = 2; private rollPh = 0;
+  private c = { a1: 0, s1: 0, a2: 0, s2: 0, envA: 0, envS: 0, fjA: 0, fjS: 0, hp: [] as Biquad[] };
+
+  /** The protocol block now running (main.ts sets it on block_start / block_end); used in participant mode. */
+  get block(): SimBlock | null { return this.blk; }
+  set block(b: SimBlock | null) {
+    if (b === this.blk) return;
+    this.blk = b; this.blkT0 = this.t;
+    if (b === "blinks") this.nextTaskBlink = this.t + 0.5;
+  }
+  /** Seconds of signal produced since start(). */
+  get time(): number { return this.t; }
+  /** The personal state being produced now (null = valence/arousal driven). */
+  get activeState(): StateName | null { return this.active; }
+  /** Smoothed focus level actually applied (-1 relaxed .. +1 focused). */
+  get focusLevel(): number { return this.focusCur; }
+  /** Story mode: what the simulated mind is doing now ("" in other modes). */
+  get storySegment(): string {
+    if (this.mode !== "story") return "";
+    return this.t < this.calibSec ? "Resting baseline" : STORY[storyIndex(this.t - this.calibSec)].label;
+  }
+
+  private gauss(): number {
+    if (this.spare !== null) { const g = this.spare; this.spare = null; return g; }
+    let u = 0, v = 0;
+    while (u === 0) u = this.rnd();
+    while (v === 0) v = this.rnd();
+    const r = Math.sqrt(-2 * Math.log(u));
+    this.spare = r * Math.sin(2 * Math.PI * v);
+    return r * Math.cos(2 * Math.PI * v);
+  }
+  private uni(lo: number, hi: number): number { return lo + (hi - lo) * this.rnd(); }
 
   start(sink: SourceSink) {
     this.stop();
-    this.channels = SIM_MONTAGES[this.montage]?.channels ?? SIM_MONTAGES.lab8.channels;
-    this.t = 0; this.cur = { v: 0, a: 0 }; this.target = { v: 0, a: 0 }; this.blinkTimes = []; this.clenchUntil = -1;
-    this.nextBlink = 4 + Math.random() * 6;
+    if (!SIM_MONTAGES[this.montage]) this.montage = "lab8";
+    this.channels = SIM_MONTAGES[this.montage].channels;
+    this.fs = simRate(this.montage);
+    this.hum = this.montage === "emotiv_insight" ? 0.3 : 2;    // the Insight filters mains in the headset
+    this.rnd = this.seed === null ? Math.random : mulberry32(this.seed);
+    this.spare = null;
+    const dt = 1 / this.fs, S = SYNTH, ar = (tau: number, sd: number) => { const a = Math.exp(-dt / tau); return [a, sd * Math.sqrt(1 - a * a)]; };
+    [this.c.a1, this.c.s1] = ar(S.background.slow_tau, S.background.slow_sd);
+    [this.c.a2, this.c.s2] = ar(S.background.fast_tau, S.background.fast_sd);
+    [this.c.envA, this.c.envS] = ar(S.envelope.tau, S.envelope.sd);
+    [this.c.fjA, this.c.fjS] = ar(S.jitter.tau, S.jitter.sd);
+    this.c.hp = [highpass(this.fs, S.emg.hp_hz, 0.5411961), highpass(this.fs, S.emg.hp_hz, 1.3065630)];   // 4th-order Butterworth
+    this.t = 0; this.blkT0 = 0;
+    this.cur = { v: 0, a: 0 }; this.target = { v: 0, a: 0 }; this.sig = { ...NEUTRAL }; this.focusCur = 0; this.ecCur = 0; this.active = null;
+    this.blinkTimes = []; this.clenchUntil = -1; this.burstUntil = -1; this.nextBurst = 0; this.nextTaskBlink = 0;
+    this.nextBlink = this.uni(4, 10);
+    this.rollPh = this.uni(0, 2 * Math.PI);
     this.st = this.channels.map(name => {
       const p = position(name) ?? [0, 0, 1];
+      const front = clamp((p[1] - 0.2) / 0.5, 0, 1);
       return {
-        ar1: 0, ar2: 0, ph: [0, 1, 2, 3, 4].map(() => Math.random() * 6.283), env: [1, 1, 1, 1, 1], fj: 0,
-        frontal: clamp((p[1] - 0.2) / 0.5, 0, 1), side: Math.abs(p[0]) > 0.1 ? Math.sign(p[0]) : 0,
-        occ: Math.max(0, (-p[1] - 0.6) / 0.4), temporal: Math.abs(p[0]) > 0.7 && p[2] < 0.45 ? 1 : 0,
+        ar1: 0, ar2: 0, ph: S.bands.hz.map(() => this.uni(0, 2 * Math.PI)), env: S.bands.hz.map(() => 1), fj: 0, hp: new Float64Array(4),
+        front, post: clamp((-p[1] - 0.2) / 0.5, 0, 1), side: Math.abs(p[0]) > 0.1 ? Math.sign(p[0]) : 0,
+        temporal: Math.abs(p[0]) > 0.7 && p[2] < 0.45 ? 1 : 0, blinkW: Math.max(0, (front - 0.3) / 0.7) ** 2,   // the eye field falls off quickly behind the brow
+        rollW: p[0] * clamp((p[1] + 0.3) / 0.8, 0, 1),            // horizontal eye movements: opposite sign left and right
       };
     });
-    sink.onMeta(this.fs, this.channels, `Simulator · ${SIM_MONTAGES[this.montage]?.label ?? ""}`);
+    sink.onMeta(this.fs, this.channels, `Simulator · ${SIM_MONTAGES[this.montage].label}`);
     sink.onStatus("Simulated signal", "ok");
     this.t0 = performance.now(); this.emitted = 0;
     this.timer = window.setInterval(() => {
@@ -83,49 +220,111 @@ export class Simulator implements Source {
   }
   stop() { if (this.timer !== null) window.clearInterval(this.timer); this.timer = null; }
 
-  doubleBlink() { this.blinkTimes.push(this.t + 0.05, this.t + 0.4); }
+  doubleBlink() { this.blinkTimes.push({ t: this.t + 0.05, amp: 1 }, { t: this.t + 0.4, amp: 1 }); }
   clench(seconds = 1.2) { this.clenchUntil = this.t + seconds; }
 
-  private sample(): number[] {
-    const dt = 1 / this.fs;
+  /** The next sample (µV per channel). start() must have run; the timer calls this, tests may call it directly. */
+  sample(): number[] {
+    const S = SYNTH, dt = 1 / this.fs;
     this.t += dt;
-    if (this.mode === "tour") {
-      this.target = this.t < this.calibSec ? { v: 0, a: 0 } : TOUR[Math.floor((this.t - this.calibSec) / 25) % TOUR.length];
-    } else if (this.mode === "participant" && this.t >= this.calibSec) {
-      const g = this.responsiveness * dt;
-      this.target.v = clamp(this.target.v + g * (this.envState.v - this.target.v) + 0.02 * Math.sqrt(dt) * gauss(), -1, 1);
-      this.target.a = clamp(this.target.a + g * (this.envState.a - this.target.a) + 0.02 * Math.sqrt(dt) * gauss(), -1, 1);
+    const t = this.t, calib = t < this.calibSec;
+    let st: StateName | null = null, va: VA | null = null, focusDrive = this.focus, ec = 0, blinkTask = false, clenchTask = false;
+    if (this.mode === "tour") va = calib ? { v: 0, a: 0 } : TOUR[Math.floor((t - this.calibSec) / 25) % TOUR.length];
+    else if (this.mode === "story") {
+      if (calib) va = { v: 0, a: 0 };
+      else { const s = STORY[storyIndex(t - this.calibSec)]; st = s.state ?? null; va = s.va ?? null; focusDrive += s.focus ?? 0; }
+    } else if (this.mode === "participant") {
+      const b = this.blk;
+      if (b === null) {
+        if (!calib) {
+          const g = this.responsiveness * dt;
+          this.target.v = clamp(this.target.v + g * (this.envState.v - this.target.v) + 0.02 * Math.sqrt(dt) * this.gauss(), -1, 1);
+          this.target.a = clamp(this.target.a + g * (this.envState.a - this.target.a) + 0.02 * Math.sqrt(dt) * this.gauss(), -1, 1);
+        }
+      } else if (b === "happy") va = { v: 0.7, a: 0.6 };
+      else if (b === "eyes_closed") { va = { v: 0, a: -0.2 }; ec = 1; }
+      else if (b === "eyes_open" || b === "blinks" || b === "clench") { va = { v: 0, a: 0 }; blinkTask = b === "blinks"; clenchTask = b === "clench"; }
+      else st = b;
     }
-    const k = dt / 3;
+    const fromBlock = st !== null && this.mode === "participant";
+    if (!fromBlock && this.state) st = this.state;
+    if (st) va = STATE_VA[st];
+    if (va) { this.target.v = va.v; this.target.a = va.a; }
+    this.active = st;
+
+    const k = dt / S.transition_tau;
     this.cur.v += (this.target.v - this.cur.v) * k;
     this.cur.a += (this.target.a - this.cur.a) * k;
-    const v = this.cur.v, a = this.cur.a;
-    if (this.t >= this.nextBlink) { this.blinkTimes.push(this.t); this.nextBlink = this.t + 6 + Math.random() * 8; }
+    const tgt = st ? STATE_SIG[st] : vaSig(this.target.v, this.target.a), sig = this.sig;
+    for (const key of SIG_KEYS) sig[key] += (tgt[key] - sig[key]) * k;
+    this.focusCur += (clamp(focusDrive, -1, 1) - this.focusCur) * Math.min(1, dt / S.focus.tau);
+    this.ecCur += (ec - this.ecCur) * Math.min(1, dt / 0.5);
+
+    // eyes: spontaneous blinks (none with the eyes closed), the blink task, slow rolling movements when drowsy
+    const B = S.blink;
+    if (this.ecCur < 0.5) {
+      if (blinkTask) {
+        if (t >= this.nextTaskBlink) { this.blinkTimes.push({ t, amp: 1 }); this.nextTaskBlink = t + this.uni(B.task_interval_s[0], B.task_interval_s[1]); }
+      } else if (t >= this.nextBlink) {
+        this.blinkTimes.push({ t, amp: sig.blinkSize });
+        this.nextBlink = t + this.uni(B.interval_s[0], B.interval_s[1]) / Math.max(0.05, sig.blinkRate);
+      }
+    }
     let blink = 0;
     for (const bt of this.blinkTimes) {
-      const d = this.t - bt - 0.15;
-      if (Math.abs(d) < 0.4) blink += 190 * Math.exp(-(d * d) / (2 * 0.06 * 0.06));
+      const d = t - bt.t - 0.15;
+      if (Math.abs(d) < 0.4) blink += B.uv * bt.amp * Math.exp(-(d * d) / (2 * B.width_s * B.width_s));
     }
-    if (this.blinkTimes.length && this.t - this.blinkTimes[0] > 1) this.blinkTimes.shift();
-    const clenching = this.t < this.clenchUntil;
-    const freqs = [6, 10, 18, 24, 38];
+    while (this.blinkTimes.length && t - this.blinkTimes[0].t > 1) this.blinkTimes.shift();
+    this.rollPh += 2 * Math.PI * S.roll.hz * dt;
+    if (this.rollPh > 2 * Math.PI) this.rollPh -= 2 * Math.PI;
+    const roll = S.roll.uv * Math.max(0, sig.roll) * (0.5 + 0.5 * Math.sin(2 * Math.PI * S.roll.envelope_hz * t)) * Math.sin(this.rollPh);
+
+    // jaw: deliberate clenches, the clench task, and brief tension bursts (anger)
+    const E = S.emg, tension = sig.emg;
+    if (tension > 0.05 && t >= this.nextBurst) {
+      this.burstUntil = t + this.uni(E.burst_s[0], E.burst_s[1]);
+      this.nextBurst = this.burstUntil + this.uni(E.gap_s[0], E.gap_s[1]) / tension;
+    }
+    const clenching = t < this.clenchUntil || (clenchTask && (t - this.blkT0) % 4 < 2);
+    const emgUv = clenching ? E.clench_uv : t < this.burstUntil ? E.tension_uv * clamp(tension, 0, 1) : 0;
+
+    const F = S.focus, f = this.focusCur, EC = S.eyes_closed, ecl = this.ecCur, hz = S.bands.hz, uv = S.bands.uv, c = this.c;
+    const twoPiDt = 2 * Math.PI * dt;
     return this.st.map(s => {
-      s.ar1 = 0.995 * s.ar1 + 1.1 * gauss();
-      s.ar2 = 0.9 * s.ar2 + 2.5 * gauss();
-      s.fj = 0.999 * s.fj + 0.002 * gauss();
-      let alpha = 9 * (1 - 0.4 * a) * (1 + 0.6 * s.occ);
-      alpha *= 1 + 0.35 * v * s.side * s.frontal;         // right (side > 0) alpha up when positive
-      const amps = [4 * (1 - 0.15 * a), alpha, 2.5 * (1 + 0.6 * a), 2.0 * (1 + 0.6 * a), 0.8 * (1 + 0.4 * a)];
-      let x = s.ar1 + s.ar2 + gauss();
-      for (let b = 0; b < 5; b++) {
-        s.env[b] = clamp(s.env[b] + 0.004 * gauss() + 0.0005 * (1 - s.env[b]), 0.3, 1.7);
-        s.ph[b] += 2 * Math.PI * freqs[b] * (1 + s.fj) * dt;
+      s.ar1 = c.a1 * s.ar1 + c.s1 * this.gauss();
+      s.ar2 = c.a2 * s.ar2 + c.s2 * this.gauss();
+      s.fj = c.fjA * s.fj + c.fjS * this.gauss();
+      const fr = s.front, po = s.post, sf = s.side * fr;
+      const gBeta = sig.beta + sig.betaF * fr + sig.betaR * sf + F.beta * f;
+      const gains = [
+        sig.delta,
+        sig.theta + sig.thetaF * fr + F.thetaF * f * fr,
+        sig.alpha + sig.alphaP * po + sig.alphaF * fr + sig.faa * sf + S.posterior_alpha_boost * po
+          + F.alpha * f * (F.alpha_global_share + (1 - F.alpha_global_share) * po) + ecl * (EC.alpha + EC.alphaP * po),
+        gBeta,
+        gBeta + sig.hibeta,
+        sig.gamma,
+      ];
+      let x = s.ar1 + s.ar2 + S.background.white_sd * this.gauss();
+      for (let b = 0; b < gains.length; b++) {
+        s.env[b] = clamp(1 + c.envA * (s.env[b] - 1) + c.envS * this.gauss(), S.envelope.lo, S.envelope.hi);
+        s.ph[b] += twoPiDt * (b === 2 ? hz[b] + sig.alphaHz : hz[b]) * (1 + s.fj);
         if (s.ph[b] > 6.283185307179586) s.ph[b] -= 6.283185307179586;
-        x += amps[b] * s.env[b] * Math.sin(s.ph[b]);
+        x += uv[b] * Math.exp(gains[b]) * s.env[b] * Math.sin(s.ph[b]);
       }
-      x += 2 * Math.sin(2 * Math.PI * 60 * this.t);
-      x += blink * Math.max(0, (s.frontal - 0.3) / 0.7) ** 2;   // eye field falls off quickly behind the brow
-      if (clenching && s.temporal) x += 22 * gauss();
+      x += this.hum * Math.sin(2 * Math.PI * 60 * t);
+      x += blink * s.blinkW + roll * s.rollW;
+      if (s.temporal) {
+        let y = this.gauss();
+        for (let q = 0; q < 2; q++) {                   // direct form II transposed
+          const h = c.hp[q], z = s.hp, o = h.b0 * y + z[2 * q];
+          z[2 * q] = h.b1 * y - h.a1 * o + z[2 * q + 1];
+          z[2 * q + 1] = h.b2 * y - h.a2 * o;
+          y = o;
+        }
+        x += emgUv * y;
+      }
       return x;
     });
   }

@@ -109,7 +109,9 @@ class Hub:
         self.rec = recorder.Recorder(self.sessions_dir, body.get("participant", ""), self.stream["fs"],
                                      self.stream["channels"], self.stream.get("label", ""),
                                      body.get("protocol", ""), body.get("notes", ""),
-                                     {"origin": self.stream["origin"]})
+                                     {"origin": self.stream["origin"],
+                                      # the app's simulator: marked so analyses skip it (datasets.load_sessions)
+                                      **({"synthetic": True} if str(self.stream.get("label", "")).startswith("Simulator") else {})})
         return self.rec.id
 
     def stop_recording(self):

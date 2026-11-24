@@ -9,7 +9,7 @@ import { CortexSource } from "./cortex";
 import { STATES, STATE_LABEL, calibrateStates, validateStates, type StateWindow } from "./states";
 import { CheckinAccumulator, MIN_DAYS, trends, type CheckinEntry } from "./checkin";
 import { AlphaControl } from "./interact";
-import { Simulator, CsvPlayback, MuseBluetooth, OpenBciSerial, SIM_MONTAGES, type Source, type SourceSink, type SimMode } from "./sources";
+import { Simulator, CsvPlayback, MuseBluetooth, OpenBciSerial, SIM_MONTAGES, simBlockFor, type Source, type SourceSink, type SimMode } from "./sources";
 import { IntentDetector, median } from "./intent";
 import { ProtocolRunner, PROTOCOLS, samClass, type RunResult, type Protocol } from "./protocol";
 import { validateModel, contributions, personalizationCv, fitLogistic, headInput, inputDim, isBrainOnly, modelInput, type ModelFile, type LabeledWindow, type Head } from "./model";
@@ -717,7 +717,8 @@ class App {
     const simMode = h("select", { id: "simMode", onchange: e => { this.sim.mode = (e.target as HTMLSelectElement).value as SimMode; } },
       h("option", { value: "tour" }, "Guided tour: rest, then the four states"),
       h("option", { value: "manual" }, "Manual: drag on the affect map"),
-      h("option", { value: "participant" }, "Virtual participant: responds to the world"));
+      h("option", { value: "participant" }, "Virtual participant: responds to the world"),
+      h("option", { value: "story" }, "Story: a 3-minute loop (lift and set down the crystal, stress, recovery, joy, drowsiness)"));
     const boardSel = h("select", { id: "boardSel" });
     const card = (kind: string, title: string, body: Node[]) =>
       h("div", { class: "card-opt", "data-kind": kind, "aria-current": "false", role: "group", "aria-label": title }, h("b", {}, title), ...body,
@@ -731,7 +732,8 @@ class App {
           h("p", { class: "note" }, "Pick your headset and press Use this source. No headset? The simulator makes a realistic practice signal."),
           h("div", { class: "cards source-grid", id: "sourceCards" },
             card("sim", "Simulator", [h("span", {}, "Synthetic EEG for demos and testing, including blinks and jaw clenches."),
-              h("label", { class: "field" }, "Electrode layout", montageSel), h("label", { class: "field" }, "Behaviour", simMode)]),
+              h("label", { class: "field" }, "Electrode layout", montageSel), h("label", { class: "field" }, "Behaviour", simMode),
+              h("p", { class: "note", id: "simStory" })]),
             card("muse", "Muse 2 / Muse S over Bluetooth", [h("span", {}, "Direct from the browser in Chrome or Edge. No other software needed.")]),
             card("emotiv", "Emotiv Insight / EPOC X", [h("span", {}, "Through the EMOTIV Launcher on this computer (Cortex). Needs a free Cortex app ID and an Emotiv licence that includes raw EEG."),
               h("div", { class: "row" },
@@ -976,6 +978,9 @@ class App {
 
   marker(type: string, value: unknown) {
     this.link.send({ type: "marker", name: type, value });
+    // synthetic streams: the virtual participant acts out each protocol block (sources.ts simBlockFor)
+    if (type === "block_start" && this.sourceKind === "sim") this.sim.block = simBlockFor(value);
+    if (type === "block_end" || type === "protocol_end" || type === "protocol_abort") this.sim.block = null;
     if (type === "block_start" && (value as { block: string }).block === "checkin") this.checkinAcc = new CheckinAccumulator(this.engine.channels.slice());
     if (type === "block_end" && this.checkinAcc && (value as { block: string }).block === "checkin") { this.checkinDone = this.checkinAcc; this.checkinAcc = null; }
     if (["block_start", "baseline_start", "recalibrate", "director_mode", "sam"].includes(type)) this.events.push({ t: this.engine.t, label: type });
@@ -994,7 +999,7 @@ class App {
     if (!$<HTMLInputElement>("consent").checked) { this.showErr("studyErr", "Confirm consent before starting a session."); return; }
     if ($<HTMLInputElement>("recordRun").checked && !this.recording) { if (!(await this.startRecording(p.id))) return; }
     this.protocolActive = true;
-    if (this.sourceKind === "sim" && this.sim.mode === "tour") { this.sim.mode = "participant"; $<HTMLSelectElement>("simMode").value = "participant"; }
+    if (this.sourceKind === "sim" && (this.sim.mode === "tour" || this.sim.mode === "story")) { this.sim.mode = "participant"; $<HTMLSelectElement>("simMode").value = "participant"; }
     this.director.setSham(Date.now() & 0xffff);
     this.marker("sham_seed", this.director.shamSeed);
     this.runner.start(p, code);
@@ -1973,6 +1978,8 @@ class App {
     };
     this.paintFit();
     if (this.demo) this.updateDemo();
+    const story = document.getElementById("simStory");     // story mode: what the simulated mind is doing
+    if (story) { const s = this.sourceKind === "sim" && this.sim.storySegment ? `Now: ${this.sim.storySegment}` : ""; if (story.textContent !== s) story.textContent = s; }
     if (this.view === "live" && !document.body.classList.contains("immersive")) {
       drawCircumplex($("circ") as HTMLCanvasElement, this.trail, this.sourceKind === "sim" ? this.sim.cur : null,
         this.director.mode !== "mirror" ? this.director.env : null, this.director.mode === "guide" ? this.director.target : null);
