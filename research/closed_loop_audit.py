@@ -14,7 +14,7 @@ own closed loop, ported from app/src (engine.ts, director.ts, safety.ts, world.t
   slewToward (tau 1.2 s, 0.5 per s) at 60 frames per s -> cloud cover, storm, fog density, saturation (world.ts
   updateWorld, style "natural", mood 0.8 = DEFAULT_SPEC) and the displayed weather (moodWeather with the 3 s dwell
   and the particle fade of updateWeather).
-  The crystal: AlphaControl (interact.ts: threshold 0.7, dwell 1 s, tau 1.5 s, hysteresis at half the threshold,
+  The focus/relax control (lantern / beacon; formerly a crystal): AlphaControl (interact.ts: threshold 0.7, dwell 1 s, tau 1.5 s, hysteresis at half the threshold,
   hold) on the cleaned region features, posterior alpha regions (Pz, P7, P8, O1, O2; Pz on the Insight).
 
 Decoders (LOSO on GAMEEMO: fitted on the other 27 people with the same features, windows (2 s hop) and settings as
@@ -43,7 +43,7 @@ Analyses
     clench; positive controls: genuine alpha change (8-13 Hz component of every channel x2 or x0.5) and alpha x2 with
     blinks. Measured against the same recording replayed without injection: how far each decoder's output, what the
     app shows and each world parameter move, how often the displayed weather or the affect quadrant differs.
- 3  False control rate of the crystal: AlphaControl over the same replays, with the brain-only hold (the app) and
+ 3  False command rate of the focus/relax control: AlphaControl over the same replays, with the brain-only hold (the app) and
     without it; commands per minute during injected epochs minus the same epochs of the clean replay. Neither
     dataset has eyes-closed segments, so the genuine-change controls are the alpha-scaled epochs.
 """
@@ -568,7 +568,7 @@ def alpha_control(z, held, dt=HOP, threshold=CTRL_THRESHOLD, dwell=CTRL_DWELL, t
 # ---------------------------------------------------------------- replay of one person under every condition
 def replay_person(person, models, conds, seed, dec_person=None, gates=(REJECT_UV, 0.0)):
     """models: {target: FoldModels}. dec_person: a second Person on the decoder's electrodes (Insight: the decoder
-    uses AF3, AF4, T7, T8 while the crystal reads Pz too); the injected signal is the same on shared electrodes.
+    uses AF3, AF4, T7, T8 while the focus/relax control reads Pz too); the injected signal is the same on shared electrodes.
     Returns {cond: {gate: [per recording dict]}} with decoder outputs, holds, usable flags and alphaZ."""
     dp = dec_person or person
     res = {}
@@ -620,7 +620,7 @@ def pad(arrs, fill):
 
 def simulate(recs, targets=("valence", "arousal")):
     """Closed loop for a list of per-recording replay dicts (one condition, one gate). Returns per decoder padded
-    arrays: raw output, decoded flag, shown (Kalman) value, world state, parameters, weather; and the crystal."""
+    arrays: raw output, decoded flag, shown (Kalman) value, world state, parameters, weather; and the focus/relax control."""
     lens = np.array([len(r["t"]) for r in recs])
     valid = np.arange(lens.max())[None] < lens[:, None]
     out = {"len": lens, "valid": valid, "t": pad([r["t"] for r in recs], np.nan)}
@@ -825,7 +825,7 @@ def face_share_analysis(sims_clean, persons_of_rec, n_perm, seed):
     return res
 
 
-# ---------------------------------------------------------------- injection and crystal metrics
+# ---------------------------------------------------------------- injection and focus/relax control metrics
 def injection_metrics(sim_c, sim_i, rec_person, ids):
     """Per person, over injected epochs: mean |change| of each decoder's raw output (windows decoded in both
     replays), of the shown value, of the world state and parameters; fraction of time the displayed weather and the
@@ -867,7 +867,7 @@ def command_onsets(cmd):
 
 def control_metrics(sim_c, sim_i, rec_person, ids, ctrl):
     """Commands per minute of injected-epoch time (focus, relax) in the injected and the clean replay, per person;
-    fraction of injected-epoch time the crystal's command differs from the clean replay; fraction held."""
+    fraction of injected-epoch time the control's command differs from the clean replay; fraction held."""
     valid = sim_c["valid"] & on_epochs(np.nan_to_num(sim_c["t"]))
     rp = np.asarray(rec_person)
     minutes = np.array([valid[rp == p].sum() * HOP / 60.0 for p in ids])
@@ -903,7 +903,7 @@ def epoch_hits(sim, rec_person, ids, ctrl, k):
 
 # ---------------------------------------------------------------- dataset runner
 def run_dataset(name, persons, models, conds, seed, n_perm, dec_persons=None, log=print, jobs=1):
-    """persons: list of Person (crystal electrodes); dec_persons: matching Person list on the decoder's electrodes
+    """persons: list of Person (control electrodes); dec_persons: matching Person list on the decoder's electrodes
     (or None); models: per person {target: FoldModels} (fitted without that person)."""
     t0 = time.time()
     dps = dec_persons or [None] * len(persons)
@@ -960,25 +960,25 @@ def run_dataset(name, persons, models, conds, seed, n_perm, dec_persons=None, lo
             ctl = {c: control_metrics(base, sim, rec_person, ids, c)
                    for c in ("ctrl_guarded", "ctrl_unguarded", "ctrl_filt")}
             entry = {"decoders": {d: {k: _summ(v) for k, v in mm.items()} for d, mm in m.items()},
-                     "crystal": {c: {k: _summ(v) for k, v in cc.items()} for c, cc in ctl.items()}}
+                     "control": {c: {k: _summ(v) for k, v in cc.items()} for c, cc in ctl.items()}}
             tests = {}
             for key in ["raw_valence", "raw_arousal", "shown_valence", "shown_arousal"] + PARAMS + ["weather_differs", "quadrant_differs"]:
                 for ref in ("standard_filt", "standard_clean"):
                     tests[f"{ref}_vs_brain/{key}"] = wilcoxon(m[ref][key], m["brain"][key])
-            tests["crystal_unguarded_vs_guarded/excess_per_min"] = wilcoxon(ctl["ctrl_unguarded"]["excess_per_min"], ctl["ctrl_guarded"]["excess_per_min"])
-            tests["crystal_unguarded_vs_guarded/differs"] = wilcoxon(ctl["ctrl_unguarded"]["differs"], ctl["ctrl_guarded"]["differs"])
-            tests["crystal_guarded_excess_vs_zero"] = wilcoxon(ctl["ctrl_guarded"]["excess_per_min"], np.zeros(len(ids)))
-            tests["crystal_unguarded_excess_vs_zero"] = wilcoxon(ctl["ctrl_unguarded"]["excess_per_min"], np.zeros(len(ids)))
+            tests["control_unguarded_vs_guarded/excess_per_min"] = wilcoxon(ctl["ctrl_unguarded"]["excess_per_min"], ctl["ctrl_guarded"]["excess_per_min"])
+            tests["control_unguarded_vs_guarded/differs"] = wilcoxon(ctl["ctrl_unguarded"]["differs"], ctl["ctrl_guarded"]["differs"])
+            tests["control_guarded_excess_vs_zero"] = wilcoxon(ctl["ctrl_guarded"]["excess_per_min"], np.zeros(len(ids)))
+            tests["control_unguarded_excess_vs_zero"] = wilcoxon(ctl["ctrl_unguarded"]["excess_per_min"], np.zeros(len(ids)))
             entry["tests"] = tests
             if cond in ("alpha_up", "alpha_down", "alpha_up_blink150"):
                 k = 2 if cond != "alpha_down" else 1
-                entry["crystal_epoch_hits"] = {c: _summ(epoch_hits(sim, rec_person, ids, c, k))
+                entry["control_epoch_hits"] = {c: _summ(epoch_hits(sim, rec_person, ids, c, k))
                                                for c in ("ctrl_guarded", "ctrl_unguarded", "ctrl_filt")}
-                entry["crystal_epoch_hits_clean"] = {c: _summ(epoch_hits(base, rec_person, ids, c, k))
+                entry["control_epoch_hits_clean"] = {c: _summ(epoch_hits(base, rec_person, ids, c, k))
                                                      for c in ("ctrl_guarded", "ctrl_unguarded", "ctrl_filt")}
             inj.setdefault(gname, {})[cond] = entry
     res["injection"] = inj
-    # spontaneous crystal commands on the clean replay (whole recordings)
+    # spontaneous focus/relax commands on the clean replay (whole recordings)
     sp = {}
     for c in ("ctrl_guarded", "ctrl_unguarded", "ctrl_filt"):
         cm = clean[c]["command"]
@@ -987,7 +987,7 @@ def run_dataset(name, persons, models, conds, seed, n_perm, dec_persons=None, lo
         mins = np.array([clean["valid"][rp == p].sum() * HOP / 60 for p in ids])
         sp[c] = {"commands_per_min": _summ(np.array([on[rp == p].sum() for p in ids]) / mins),
                  "time_commanded": _summ(_per_person((cm != 0).astype(float), clean["valid"], rp, ids))}
-    res["crystal_clean_replay"] = sp
+    res["control_clean_replay"] = sp
     log(f"  {name}: done ({time.time() - t0:.0f} s)")
     return res
 
@@ -1068,7 +1068,7 @@ def run(a, log=print):
     conds = list(CONDITIONS) if not a.conds else ["clean"] + [c for c in a.conds.split(",") if c and c != "clean"]
     out = {"settings": {"hop_s": HOP, "train_hop_s": TRAIN_HOP, "reject_uv": REJECT_UV, "kalman_q": KALMAN_Q,
                         "director_rate": DIRECTOR_RATE, "slew": [SLEW_RATE, SLEW_TAU], "fps": FPS, "mood": MOOD,
-                        "weather_dwell_s": WEATHER_DWELL, "crystal": [CTRL_THRESHOLD, CTRL_DWELL, CTRL_TAU],
+                        "weather_dwell_s": WEATHER_DWELL, "control": [CTRL_THRESHOLD, CTRL_DWELL, CTRL_TAU],
                         "epoch_s": EPOCH_SEC, "conditions": {k: list(v) for k, v in CONDITIONS.items() if k in conds},
                         "face_history_taus_s": list(EMA_TAUS), "seed": a.seed, "n_perm": a.perms}}
     if a.gameemo:
@@ -1150,81 +1150,89 @@ COND_LABEL = {"blink100": "blinks\n100", "blink150": "blinks\n150", "blink200": 
 
 
 def figure(path, out):
-    """Face share of the world (GAMEEMO and Insight stress), world change under injected artifacts vs genuine alpha
-    changes (GAMEEMO), and crystal commands caused by each (both datasets)."""
+    """Row per dataset: face share of the world (GAMEEMO; per-window audit measure for the Insight data, where the
+    out-of-person world regression does not generalize), world change under injected artifacts vs genuine alpha
+    changes, and focus/relax commands added by each."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     R = json.load(open(path))
     ink, muted, grid = "#0b0b0b", "#52514e", "#e4e3df"
     plt.rcParams.update({"font.size": 7.5, "axes.edgecolor": muted, "axes.labelcolor": ink, "xtick.color": muted,
-                         "ytick.color": muted, "axes.titlesize": 8.5, "axes.titleweight": "bold"})
+                         "ytick.color": muted, "axes.titlesize": 8, "axes.titleweight": "bold"})
     sets = [k for k in ("gameemo", "stress") if k in R]
-    fig, axes = plt.subplots(len(sets), 3, figsize=(11.5, 3.6 * len(sets)), dpi=170, squeeze=False,
-                             gridspec_kw={"width_ratios": [1.15, 1.25, 1.0]})
-    rows = [("raw_valence", "Decoder output, valence (2 s)"), ("raw_arousal", "Decoder output, arousal (2 s)"),
+    fig, axes = plt.subplots(len(sets), 3, figsize=(13, 3.9 * len(sets)), dpi=170, squeeze=False,
+                             gridspec_kw={"width_ratios": [1.1, 1.35, 1.0]})
+    rows = [("raw_valence", "Decoder output, valence"), ("raw_arousal", "Decoder output, arousal"),
             ("shown_valence", "Valence the app shows"), ("shown_arousal", "Arousal the app shows"),
             ("cloud", "Cloud cover"), ("storm", "Storm"), ("fog", "Fog density"), ("saturation", "Colour saturation"),
             ("weather", "Weather (5 kinds)")]
-    title = {"gameemo": "GAMEEMO, 28 people, 14 ch, LOSO", "stress": "Insight stress data, 17 people (GAMEEMO models)"}
+    tag = {"gameemo": "GAMEEMO (28 people, 14 ch, LOSO)", "stress": "Insight stress (17 people, GAMEEMO models)"}
+    letters = iter("abcdef")
+
+    def style(ax, axis):
+        ax.grid(axis=axis, color=grid, lw=0.6)
+        ax.set_axisbelow(True)
+        ax.spines[["top", "right"]].set_visible(False)
     for r_, ds in enumerate(sets):
         D_ = R[ds]
         fs_ = D_["face_share"]["columns"]
         ax = axes[r_, 0]
         h = 0.26
+        world_ok = ds == "gameemo"
+        use = rows if world_ok else rows[:2]
         for k, dec in enumerate(DECODERS):
-            ys = np.arange(len(rows))[::-1] + (1 - k) * h
-            vals = [fs_.get(f"{dec}/{c}", {}).get("r2", np.nan) for c, _ in rows]
+            ys = np.arange(len(use))[::-1] + (1 - k) * h
+            if world_ok:
+                vals = [fs_[f"{dec}/{c}"]["r2"] for c, _ in use]
+            else:
+                vals = [fs_[f"{dec}/{c}"]["in_sample_unsmoothed"] for c, _ in use]
             ax.barh(ys, np.clip(vals, 0, None), height=h - 0.03, color=COL[dec], label=NAME[dec])
-            for y, v, c in zip(ys, vals, rows):
-                pv = fs_.get(f"{dec}/{c[0]}", {}).get("p_perm")
-                mark = "" if pv is None else ("*" if pv < 0.05 else "")
-                ax.text(max(v, 0) + 0.006, y, f"{v:.2f}{mark}", va="center", fontsize=5.6, color=muted)
-        ax.set_yticks(np.arange(len(rows))[::-1], [n for _, n in rows])
-        ax.set_xlim(0, max(0.2, 1.15 * max(max(fs_.get(f"{d}/{c}", {}).get("r2", 0) for c, _ in rows) for d in DECODERS)))
-        ax.set_xlabel("share the face explains (out-of-person R²; * permutation p < 0.05)")
-        ax.set_title(f"{title[ds]}: face share of the world", loc="left")
-        ax.grid(axis="x", color=grid, lw=0.6)
-        ax.set_axisbelow(True)
-        ax.spines[["top", "right"]].set_visible(False)
-        if r_ == 0:
-            ax.legend(frameon=False, fontsize=6.5, loc="lower right")
+            for y, v, c in zip(ys, vals, use):
+                pv = fs_[f"{dec}/{c[0]}"].get("p_perm")
+                txt = f"{v:.2f}" if v > 0 else f"<0 ({v:.2f})"
+                ax.text(max(v, 0) + 0.008, y, txt + ("*" if (pv is not None and pv < 0.05 and v > 0) else ""),
+                        va="center", fontsize=5.6, color=muted)
+        ax.set_yticks(np.arange(len(use))[::-1], [n for _, n in use])
+        ax.set_xlim(0, 0.62)
+        if world_ok:
+            ax.set_xlabel("share explained by the face (out-of-person R²; * permutation p < 0.05)")
+            ax.set_title(f"({next(letters)}) {tag[ds]}: face share of the world", loc="left")
+        else:
+            ax.set_xlabel("share explained by the face (audit measure, per 2 s window, in sample)")
+            ax.set_title(f"({next(letters)}) Insight stress, 17 people: face share of the output", loc="left")
+        style(ax, "x")
+        ax.legend(frameon=False, fontsize=6.5, loc="lower right")
         inj = D_["injection"]["app"]
         conds = [c for c in COND_LABEL if c in inj]
-        ax = axes[r_, 1]
+        art = [i for i, c in enumerate(conds) if not c.startswith("alpha")]
         x = np.arange(len(conds))
+        ax = axes[r_, 1]
         for k, dec in enumerate(DECODERS):
             v = [0.5 * (inj[c]["decoders"][dec]["shown_valence"]["mean"] + inj[c]["decoders"][dec]["shown_arousal"]["mean"]) for c in conds]
             wv = [100 * inj[c]["decoders"][dec]["weather_differs"]["mean"] for c in conds]
             ax.bar(x + (k - 1) * 0.27, v, width=0.25, color=COL[dec], label=NAME[dec])
             for xi, vi, wi in zip(x + (k - 1) * 0.27, v, wv):
-                ax.text(xi, vi + 0.003, f"{wi:.0f}", ha="center", va="bottom", fontsize=4.8, color=muted, rotation=90)
-        art = [i for i, c in enumerate(conds) if not c.startswith("alpha")]
-        if art and len(art) < len(conds):
-            ax.axvline(max(art) + 0.5, color=muted, lw=0.6, ls=":")
-            ax.text(max(art) + 0.6, ax.get_ylim()[1] * 0.96, "genuine\nbrain change", fontsize=6, color=muted, va="top")
+                ax.text(xi, vi + 0.004, f"{wi:.0f}", ha="center", va="bottom", fontsize=4.8, color=muted)
+        ax.axvline(max(art) + 0.5, color=muted, lw=0.6, ls=":")
         ax.set_xticks(x, [COND_LABEL[c] for c in conds], fontsize=6)
-        ax.set_ylabel("shown state moved, mean |change| (V, A units)")
-        ax.set_title("Injected epochs vs the same recording without them (number: % of time weather differs)", loc="left", fontsize=7.5)
-        ax.grid(axis="y", color=grid, lw=0.6)
-        ax.set_axisbelow(True)
-        ax.spines[["top", "right"]].set_visible(False)
+        ax.set_ylabel("shown state moved, mean |change|")
+        ax.set_xlabel("injected: face artifacts (uV)  |  genuine alpha change (right of the line)")
+        ax.set_title(f"({next(letters)}) World vs same recording without injection (numbers: % time weather differs)", loc="left")
+        style(ax, "y")
         ax = axes[r_, 2]
-        cc = [("ctrl_unguarded", "No face hold", "#9a9993"), ("ctrl_guarded", "Emotif (hold during face activity)", "#2a78d6")]
-        for k, (c, lab, colr) in enumerate(cc):
-            v = [inj[cn]["crystal"][c]["excess_per_min"]["mean"] for cn in conds]
+        for k, (c, lab, colr) in enumerate((("ctrl_unguarded", "Without face hold", "#9a9993"),
+                                            ("ctrl_guarded", "Emotif (face hold)", "#2a78d6"))):
+            v = [inj[cn]["control"][c]["excess_per_min"]["mean"] for cn in conds]
             ax.bar(x + (k - 0.5) * 0.38, v, width=0.36, color=colr, label=lab)
         ax.axhline(0, color=muted, lw=0.6)
-        if art and len(art) < len(conds):
-            ax.axvline(max(art) + 0.5, color=muted, lw=0.6, ls=":")
+        ax.axvline(max(art) + 0.5, color=muted, lw=0.6, ls=":")
         ax.set_xticks(x, [COND_LABEL[c] for c in conds], fontsize=6)
-        ax.set_ylabel("crystal commands per minute added by the injection")
-        sp = D_["crystal_clean_replay"]["ctrl_guarded"]["commands_per_min"]["mean"]
-        ax.set_title(f"Crystal (alpha control); clean replay: {sp:.1f} commands/min", loc="left")
-        ax.grid(axis="y", color=grid, lw=0.6)
-        ax.set_axisbelow(True)
-        ax.spines[["top", "right"]].set_visible(False)
-        ax.legend(frameon=False, fontsize=6.5, loc="upper left")
+        ax.set_ylabel("commands per minute added (injected - clean replay)")
+        sp = D_["control_clean_replay"]["ctrl_guarded"]["commands_per_min"]["mean"]
+        ax.set_title(f"({next(letters)}) Focus/relax control (clean replay {sp:.1f} commands/min)", loc="left")
+        style(ax, "y")
+        ax.legend(frameon=False, fontsize=6.5, loc="lower left")
     fig.tight_layout()
     fig.savefig(os.path.join(out, "fig_closed_loop.png"))
     fig.savefig(os.path.join(out, "fig_closed_loop.pdf"))

@@ -363,13 +363,13 @@ def session_qa_check(d, rng):
 
 def closed_loop_check():
     """research/closed_loop_audit.py on synthetic people whose valence label lives in the face (pleasant recordings
-    carry extra blinks): the crystal port's dwell, hysteresis and hold; the world loop's slew limit and weather
+    carry extra blinks): the focus/relax control port's dwell, hysteresis and hold; the world loop's slew limit and weather
     dwell; the face-share measure on a known answer; and the causal test, injected blinks move the standard
     decoder's shown valence and world more than the brain-only decoder's."""
     sys.path.insert(0, os.path.join(ROOT, "research"))
     import closed_loop_audit as CL
     from emotif import artifact as A
-    # crystal (interact.ts AlphaControl): 0.75 s beyond the threshold is not enough, >= 1 s is; a hold freezes it
+    # focus/relax control (interact.ts AlphaControl): 0.75 s beyond the threshold is not enough, >= 1 s is; a hold freezes it
     z = np.full((3, 40), -3.0)
     z[0, 14:] = 0.0                                      # comes back to baseline: hysteresis ends the command
     held = np.zeros((3, 40), bool)
@@ -429,7 +429,7 @@ def closed_loop_check():
     # the clean replay is identical whatever the condition seed (injection is the only difference)
     rep2 = CL.replay_person(test, fm, ["clean"], seed=7)
     assert np.array_equal(rep2["clean"][CL.REJECT_UV][0]["brain/valence"], rep["clean"][CL.REJECT_UV][0]["brain/valence"])
-    print(f"closed-loop audit OK: crystal dwell / hysteresis / hold, world slew <= 0.25/s and weather dwell >= 3 s, "
+    print(f"closed-loop audit OK: focus/relax dwell / hysteresis / hold, world slew <= 0.25/s and weather dwell >= 3 s, "
           f"face share known answer {r2[0]:.2f} / {r2[1]:.2f}; injected blinks move shown valence "
           f"{std['shown_valence'][0]:.3f} (standard) vs {br['shown_valence'][0]:.3f} (brain-only, decoded {br['decoded'][0]:.0%})")
 
