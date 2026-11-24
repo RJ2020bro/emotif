@@ -74,6 +74,15 @@ async def test_streaming_and_recording(tmp):
         await c.post("/api/session/stop")
         lines = open(os.path.join(hub.sessions_dir, sid2, "eeg.csv")).read().strip().splitlines()
         assert lines[0].startswith("time_s,TP9,AF7,AF8,TP10") and len(lines) == 1 + 4 * 256
+        assert "synthetic" not in json.load(open(os.path.join(hub.sessions_dir, sid2, "meta.json")))
+        # the app's simulator recorded through the server is marked synthetic, so analyses skip it
+        await ws.send_str(json.dumps({"type": "stream_meta", "fs": 128, "channels": ["AF3", "AF4", "T7", "T8", "Pz"], "label": "Simulator · Emotiv Insight"}))
+        await asyncio.sleep(0.1)
+        sid3 = (await (await c.post("/api/session/start", json={"participant": "P03", "consent": True})).json())["id"]
+        await ws.send_str(json.dumps({"type": "samples", "samples": [[1, 2, 3, 4, 5]] * 128}))
+        await asyncio.sleep(0.2)
+        await c.post("/api/session/stop")
+        assert json.load(open(os.path.join(hub.sessions_dir, sid3, "meta.json")))["synthetic"] is True
         await ws.close()
     print("server: device stream, sessions, client stream OK")
 

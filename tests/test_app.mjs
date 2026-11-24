@@ -438,7 +438,8 @@ function runEngine(channels, model, seconds, va, artifactsEvery = 0) {
     sim.start({ onMeta: (fs, ch) => e.setStream(fs, ch), onStatus: () => {}, onRows: () => {} });
     e.settings.calibSec = 20;
     e.personalStates = S.validateStates(pm);
-    for (let i = 0; i < 256 * 35; i++) e.push([sim.sample()]);
+    assert.equal(sim.fs, 128, "the simulated Insight streams at 128 Hz");
+    for (let i = 0; i < sim.fs * 35; i++) e.push([sim.sample()]);
     const st = e.last.states;
     assert.deepEqual(Object.keys(st), ["calm", "stress"]);
     for (const v of Object.values(st)) assert.ok(v >= 0 && v <= 1);
@@ -504,6 +505,170 @@ function runEngine(channels, model, seconds, va, artifactsEvery = 0) {
   }
   assert.ok(flips <= 2, `baseline noise rarely issues commands (${flips} changes in 2 min)`);
   console.log(`brain control OK: posterior alpha, dwell, hold on face activity, hysteresis, ${flips} command changes from 2 min of baseline noise`);
+}
+
+// ---------------------------------------------------------------- synthetic Emotiv Insight streams (simulator)
+{
+  globalThis.window = globalThis.window ?? { setInterval: () => 0, clearInterval: () => {} };
+  const So = require(join(D, "sources.cjs"));
+  const S = require(join(D, "states.cjs"));
+  const I = require(join(D, "interact.cjs"));
+  const { bandPowers } = require(join(D, "dsp.cjs"));
+  const art = JSON.parse(readFileSync(join(here, "..", "models", "artifact_detector.json"), "utf8"));
+  const sink = got => ({ onMeta: (fs, ch) => { got.fs = fs; got.ch = ch; }, onStatus: () => {}, onRows: () => {}, onEnd: () => {} });
+  const make = (montage, seed, mode = "manual", calibSec = 30) => {
+    const sim = new So.Simulator(); sim.montage = montage; sim.seed = seed; sim.mode = mode; sim.calibSec = calibSec;
+    const got = {}; sim.start(sink(got)); sim.stop();
+    return { sim, got };
+  };
+  // sampling rate per layout, reproducible from a seed
+  {
+    const { sim, got } = make("emotiv_insight", 9);
+    assert.equal(sim.fs, 128); assert.equal(got.fs, 128); assert.deepEqual(got.ch, ["AF3", "AF4", "T7", "T8", "Pz"]);
+    assert.equal(make("muse", 9).got.fs, 256); assert.equal(make("lab8", 9).got.fs, 256);
+    const a = make("emotiv_insight", 9).sim, b = make("emotiv_insight", 9).sim, c = make("emotiv_insight", 10).sim;
+    let same = true, differ = false;
+    for (let i = 0; i < 2000; i++) { const x = a.sample(), y = b.sample(), z = c.sample(); if (x.some((v, k) => v !== y[k])) same = false; if (x.some((v, k) => v !== z[k])) differ = true; }
+    assert.ok(same && differ, "same seed, same signal; another seed, another signal");
+    assert.ok(sim.sample().every(Number.isFinite));
+  }
+  // block mapping from protocol block_start values
+  assert.equal(So.simBlockFor({ task: "breathing" }), "calm");
+  assert.equal(So.simBlockFor({ task: "recall_anger", state: "anger" }), "anger");
+  assert.equal(So.simBlockFor({ task: "rest", state: "checkin" }), "eyes_open", "an unknown state falls back to the task");
+  assert.equal(So.simBlockFor({ task: "watch" }), null, "closed-loop recovery: respond to the world");
+  assert.equal(So.simBlockFor({ task: "toString" }), null);
+  assert.equal(So.simBlockFor(null), null);
+  // six states with distinct, physiologically ordered spectra at 128 Hz (AF3 AF4 T7 T8 Pz)
+  const RANGES = [[1, 4], [4, 8], [8, 13], [13, 30], [30, 45], [25, 45]];
+  const spectra = {};
+  for (const st of S.STATES) {
+    const { sim } = make("emotiv_insight", 21);
+    sim.state = st;
+    const fs = sim.fs, N = 2 * fs;
+    for (let i = 0; i < 15 * fs; i++) sim.sample();            // transition into the state
+    assert.equal(sim.activeState, st);
+    const halves = [0, 1].map(() => {
+      const acc = Array.from({ length: 5 }, () => new Float64Array(RANGES.length));
+      let n = 0;
+      for (let w = 0; w < 30; w++) {
+        const win = Array.from({ length: 5 }, () => new Float64Array(N));
+        for (let i = 0; i < N; i++) { const r = sim.sample(); for (let c = 0; c < 5; c++) win[c][i] = r[c]; }
+        bandPowers(win, fs, RANGES).forEach((p, c) => p.forEach((v, b) => { acc[c][b] += Math.log(v); }));
+        n++;
+      }
+      return acc.map(r => Array.from(r, v => v / n));
+    });
+    spectra[st] = { h: halves, m: halves[0].map((r, c) => r.map((v, b) => (v + halves[1][c][b]) / 2)) };
+  }
+  // distance over theta..gamma (delta at AF3/AF4 is dominated by blinks, which the decoders regress out)
+  const dist = (p, q) => Math.sqrt(p.reduce((s, r, c) => s + r.slice(1, 5).reduce((t, v, b) => t + (v - q[c][b + 1]) ** 2, 0), 0));
+  // every pair of states differs by well over each state's own half-to-half variation
+  const within = Object.fromEntries(S.STATES.map(s => [s, dist(spectra[s].h[0], spectra[s].h[1])]));
+  let worst = Infinity, pair = "";
+  for (const s1 of S.STATES) for (const s2 of S.STATES) if (s1 < s2) {
+    const r = dist(spectra[s1].m, spectra[s2].m) / Math.max(within[s1], within[s2]);
+    if (r < worst) { worst = r; pair = `${s1}/${s2}`; }
+  }
+  assert.ok(worst > 1.5, `closest states ${pair}: ${worst.toFixed(2)}x their within-state variation`);
+  const P = (st, c, b) => spectra[st].m[c][b], [AF3, AF4, T7, , Pz] = [0, 1, 2, 3, 4];
+  const mean = (st, b) => [0, 1, 2, 3, 4].reduce((s, c) => s + P(st, c, b), 0) / 5;
+  assert.ok(P("calm", Pz, 2) > P("stress", Pz, 2) + 0.4, "calm: more posterior alpha than stress");
+  assert.ok(mean("stress", 3) > mean("calm", 3) + 0.5, "stress: more beta than calm");
+  assert.ok(mean("anxiety", 3) > mean("calm", 3) + 0.5 && mean("anxiety", 4) > mean("calm", 4) + 0.1 && mean("anxiety", 1) > mean("stress", 1) + 0.1,
+    "anxiety: high beta and gamma up, more theta than stress");
+  assert.ok(P("anger", AF3, 3) - P("calm", AF3, 3) > 0.25 && P("anger", AF4, 3) - P("calm", AF4, 3) > 0.8, "anger: frontal beta, more on the right");
+  assert.ok(Math.abs(P("anger", Pz, 3) - P("calm", Pz, 3)) < 0.35, "anger beta is frontal, not posterior");
+  assert.ok(P("anger", T7, 5) > P("calm", T7, 5) + 0.3 && Math.abs(P("anger", T7, 1) - P("calm", T7, 1)) < 0.3, "jaw tension: temporal power above 25 Hz, theta untouched");
+  assert.ok(P("low_mood", AF3, 2) - P("low_mood", AF4, 2) > P("calm", AF3, 2) - P("calm", AF4, 2) + 0.6, "low mood: left frontal alpha up");
+  assert.ok(mean("drowsy", 1) > mean("calm", 1) + 0.4 && P("drowsy", Pz, 2) < P("calm", Pz, 2) - 0.5, "drowsy: theta up, posterior alpha down");
+  // in-app calibration ("states" protocol) trains on the virtual participant: participant mode acts out each block
+  {
+    const { sim } = make("emotiv_insight", 4, "participant", 40);
+    const e = new Engine(); e.setArtifactModel(art); e.settings.calibSec = 40;
+    e.setStream(sim.fs, So.SIM_MONTAGES.emotiv_insight.channels);
+    const run = sec => { for (let i = 0; i < sim.fs * sec; i++) e.push([sim.sample()]); };
+    run(40);
+    const data = [];
+    let block = 0;
+    for (let round = 0; round < 3; round++) for (const st of S.STATES) {
+      block++; sim.block = So.simBlockFor({ task: "x", state: st });
+      assert.equal(sim.block, st);
+      const n0 = e.featureLog.length; run(30);
+      assert.equal(sim.activeState, st);
+      e.featureLog.slice(n0 + 20).forEach(w => data.push({ x: w.x, f: w.f, y: S.STATES.indexOf(st), block }));
+      sim.block = So.simBlockFor({ task: "rest" }); run(10); sim.block = null;
+    }
+    const m = S.calibrateStates(data, S.STATES, { perms: 49 });
+    const on = S.STATES.filter(s => m.checks[s].on).length;
+    assert.ok(m.bacc > 0.8 && on >= 5, `virtual participant calibration: bacc ${m.bacc}, ${on}/6 on ${JSON.stringify(m.checks)}`);
+    console.log(`synthetic states OK: Insight at 128 Hz, closest states ${pair} ${worst.toFixed(1)}x apart vs within-state, in-app calibration on the virtual participant bacc ${m.bacc.toFixed(2)}, ${on}/6 states pass`);
+  }
+  // focus = +1 / -1 drives brain control of objects (AlphaControl) through the live engine
+  {
+    const { sim } = make("emotiv_insight", 6);
+    const e = new Engine(); e.setArtifactModel(art); e.settings.calibSec = 30;
+    e.setStream(sim.fs, So.SIM_MONTAGES.emotiv_insight.channels);
+    const ctl = new I.AlphaControl();
+    let cmd = "idle";
+    e.listeners.add(ev => { if (ev.calibrated) cmd = ctl.update(ev.features, ev.reject || !!ev.out?.faceHold, 0.25).command; });
+    const run = sec => { for (let i = 0; i < sim.fs * sec; i++) e.push([sim.sample()]); };
+    run(40);
+    sim.focus = 1; run(8);
+    assert.ok(sim.focusLevel > 0.95, `focus level ${sim.focusLevel}`);
+    assert.equal(cmd, "focus", "focus = +1 lifts");
+    sim.focus = 0; run(14);
+    sim.focus = -1; run(8);
+    assert.equal(cmd, "relax", "focus = -1 sets down");
+    console.log("synthetic brain control OK: focus +1 -> focus command, -1 -> relax command (Insight, Pz alpha)");
+  }
+  // story mode: loops through its segments after the baseline and exercises lift / set down
+  {
+    const { sim } = make("emotiv_insight", 8, "story", 30);
+    const e = new Engine(); e.setArtifactModel(art); e.settings.calibSec = 30;
+    e.setStream(sim.fs, So.SIM_MONTAGES.emotiv_insight.channels);
+    const ctl = new I.AlphaControl();
+    const seen = [], cmds = new Map();
+    e.listeners.add(ev => {
+      if (!ev.calibrated) return;
+      const c = ctl.update(ev.features, ev.reject || !!ev.out?.faceHold, 0.25).command;
+      const k = So.STORY[So.storyIndex(sim.time - sim.calibSec)]?.label;
+      if (!cmds.has(k)) cmds.set(k, new Set());
+      cmds.get(k).add(c);
+    });
+    assert.equal(sim.storySegment, "Resting baseline");
+    const total = sim.calibSec + So.STORY_SECONDS + 20;          // into the first segment again (25 s long)
+    for (let i = 0; i < sim.fs * total; i++) {
+      e.push([sim.sample()]);
+      if (seen.at(-1) !== sim.storySegment) seen.push(sim.storySegment);
+      if (sim.storySegment === "Stress builds") assert.equal(sim.activeState, "stress");
+    }
+    const labels = So.STORY.map(s => s.label);
+    const expect = ["Resting baseline", ...labels.filter((l, i) => i === 0 || l !== labels[i - 1]), labels[0]];
+    assert.deepEqual(seen, expect, "story order, then it loops");
+    assert.ok(Math.abs(So.STORY_SECONDS - 180) <= 30, `about three minutes (${So.STORY_SECONDS} s)`);
+    assert.ok(cmds.get("Focusing to lift the crystal").has("focus") && cmds.get("Relaxing to set it down").has("relax"), JSON.stringify([...cmds].map(([k, v]) => [k, [...v]])));
+    console.log(`story mode OK: ${labels.length} segments over ${So.STORY_SECONDS} s, loops, focus segment lifts and relax segment sets down`);
+  }
+  // valence / arousal targeting still reads back through the neuro-markers (the browser test relies on it)
+  {
+    for (const montage of ["lab8", "emotiv_insight"]) {
+      const { sim } = make(montage, 12);
+      const e = new Engine(); e.setArtifactModel(art); e.settings.calibSec = 25;
+      e.setStream(sim.fs, sim.fs === 128 ? So.SIM_MONTAGES.emotiv_insight.channels : So.SIM_MONTAGES[montage].channels);
+      const run = sec => { for (let i = 0; i < sim.fs * sec; i++) e.push([sim.sample()]); };
+      run(25);
+      let hits = 0;
+      for (const [v, a] of [[0.8, 0.7], [0.8, -0.7], [-0.8, -0.7], [-0.8, 0.7]]) {
+        sim.target = { v, a }; run(15);
+        let mv = 0, ma = 0;
+        for (let k = 0; k < 4; k++) { run(1.5); mv += e.last.rawV / 4; ma += e.last.rawA / 4; }
+        if (Math.sign(mv) === Math.sign(v) && Math.sign(ma) === Math.sign(a)) hits++;
+      }
+      assert.ok(hits >= (montage === "lab8" ? 4 : 3), `${montage}: markers recover ${hits}/4 quadrants`);
+    }
+    console.log("synthetic affect OK: markers recover the steered quadrants (lab8 4/4, Insight >= 3/4)");
+  }
 }
 
 console.log("all app tests passed");

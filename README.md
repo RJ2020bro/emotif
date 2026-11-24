@@ -105,6 +105,22 @@ python train.py --data session:data/sessions --out models/my_study.json     # yo
 ```
 `train.py` cleans exactly as the app does (`--clean full|asr|detector|none`, `--asr-k 20`). Cross-validation always splits by recording, never by window.
 
+## Synthetic Emotiv data
+Simulated Emotiv Insight signals (AF3, AF4, T7, T8, Pz at 128 Hz) for testing the pipeline and driving the world without a headset. **They are not research data**: no person was recorded, the state signatures are textbook directions written into `emotif/data/synthetic_states.json`, and any accuracy on them only shows the code works. Keep them out of `results/` and `docs/RESULTS.md`.
+
+In the app: Setup → Simulator, layout "Emotiv Insight" (streams at 128 Hz). Behaviour "Story" plays a 3-minute loop (calm walk, focus to lift the crystal, relax to set it down, stress, recovery, joy, drowsiness) and shows what the simulated mind is doing; "Virtual participant" acts out each protocol block, so Study → Personal state calibration trains on it. From the console: `emotif.sim.state = "anxiety"` (any of the six states, `null` to go back to valence/arousal), `emotif.sim.focus = 1` (focused: lifts) or `-1` (relaxed: sets down), `emotif.sim.seed = 7` before starting the source for a reproducible signal.
+
+Offline sessions in the recorder's format (`meta.json` has `"synthetic": true`; numpy only):
+```bash
+python scripts/synth_insight.py --participants 8 --protocol face,states,induction --seed 1   # -> data/synthetic/ (git-ignored)
+python research/session_qa.py data/synthetic/synthetic-face-SYN01 --out /tmp/qa                # blink and jaw check: Ready
+python scripts/train_synthetic.py      # personal states per participant + valence/arousal (LOSO); prints held-out accuracy
+                                       # models -> models/synthetic/ (git-ignored); real models in models/ are never touched
+python scripts/synth_insight.py --participants 8 --protocol states --effect 0 --out data/synthetic_null   # null check: no state differences
+python scripts/train_synthetic.py --sessions data/synthetic_null --out models/synthetic/null --skip-affect  # should stay near chance
+```
+Protocols: `states`, `face`, `check` (adds eyes closed), `closedloop` (recovery is identical in all three conditions: no planted effect), `induction`. `--block-sec 20` shortens the task blocks; `--effect 0.3` makes the states harder to tell apart. `train_synthetic.py` refuses sessions not marked synthetic and refuses to write anywhere in the repository except `models/synthetic/`.
+
 ## Tests
 ```bash
 ./run_tests.sh      # 7 suites: parity (incl. face indices + brain-only decoder), cleaning, training, server + arm, app modules + world, real-data replay, full browser run (incl. a simulated jaw clench)

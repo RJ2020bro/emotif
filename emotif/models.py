@@ -538,6 +538,10 @@ def calibrate(subjects, target, kind="logreg", augment=2, seed=0, folds=5):
         if [int(c) for c in clf.classes_] != classes:
             continue
         m = ~np.isnan(test_sd.labels[target]) if masks is None else masks[1]
+        # a test person may use a class nobody in the training fold used: the fold's model can't score it
+        m = m & np.isin(np.nan_to_num(test_sd.labels[target], nan=np.inf), classes)
+        if not m.any():
+            continue
         Xt = head_input(clf, featurize(test_sd)[m], featurize_face(test_sd)[m])
         layers = export_layers(clf)
         P_layers.append(layers)

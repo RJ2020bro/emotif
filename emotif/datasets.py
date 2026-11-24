@@ -272,10 +272,12 @@ def sam_class(x):
 PERSONAL_STATES = ["calm", "stress", "anxiety", "anger", "low_mood", "drowsy"]     # app/src/states.ts STATES
 
 
-def load_sessions(root, labels="sam"):
+def load_sessions(root, labels="sam", synthetic=False):
     """Sessions recorded by the Emotif server (folders with meta.json, eeg.csv, events.csv).
     Each protocol block becomes a Trial labelled by the participant's SAM rating (labels="sam"), by
-    the block's intended valence/arousal (labels="design"), or by its calibration state (labels="state"). Each session is normalised on its own, as in the app."""
+    the block's intended valence/arousal (labels="design"), or by its calibration state (labels="state"). Each session is normalised on its own, as in the app.
+    Simulated sessions (meta "synthetic": true: the app's simulator, scripts/synth_insight.py) are skipped, so they
+    can't mix into research analyses; synthetic=True loads only them (train.py --data synthetic:PATH)."""
     import json as _json
     from .features import filter_signal
     dirs = [root] if os.path.isfile(os.path.join(root, "meta.json")) else \
@@ -284,6 +286,8 @@ def load_sessions(root, labels="sam"):
     for d in dirs:
         with open(os.path.join(d, "meta.json")) as fh:
             meta = _json.load(fh)
+        if bool(meta.get("synthetic") is True) != bool(synthetic):
+            continue
         with open(os.path.join(d, "eeg.csv"), newline="") as fh:
             rows = list(csv.reader(fh))
         header = rows[0]
@@ -333,8 +337,14 @@ def load_sessions(root, labels="sam"):
             trials.append(Trial(f"{meta.get('participant', 'anon')}@{meta['id']}", f"{meta['id']}:{b}", x[:, a:z], fs, chans,
                                 lab, filtered=True, dataset="session", group=f"{meta['id']}:{b}"))
     if not trials:
-        raise FileNotFoundError(f"no rated protocol blocks in sessions under {root}")
+        raise FileNotFoundError(f"no rated protocol blocks in {'synthetic ' if synthetic else ''}sessions under {root}"
+                                + ("" if synthetic else " (simulated sessions are skipped; train on them with --data synthetic:PATH)"))
     return trials
+
+
+def load_synthetic_sessions(root, labels="sam"):
+    """Simulated sessions only (scripts/synth_insight.py, or the app's simulator recorded through the server)."""
+    return load_sessions(root, labels, synthetic=True)
 
 
 def load_gameemo_raw(root):
@@ -490,5 +500,6 @@ def to_device(trials, device):
 
 LOADERS = {"seed": load_seed, "deap": load_deap, "dreamer": load_dreamer, "gameemo": load_gameemo, "gameemo_raw": load_gameemo_raw,
            "muse_mental": load_muse_mental, "csv": load_csv_dir, "session": load_sessions,
+           "synthetic": load_synthetic_sessions,
            "stress_insight": load_stress_insight, "depression_phq9": load_depression_phq9, "anxiety_gad7": load_anxiety_gad7,
            "sleepiness": load_sleepiness}

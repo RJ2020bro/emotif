@@ -6,7 +6,7 @@
   python train.py --data csv:./recordings --cv within --out models/me.json
   python train.py --data muse_mental:./eeg-feature-generation/dataset/original_data
 
-Datasets: seed, deap, dreamer, gameemo, muse_mental, csv, session. Several --data flags are combined into one model:
+Datasets: seed, deap, dreamer, gameemo, muse_mental, csv, session (synthetic: simulated sessions only). Several --data flags are combined into one model:
 region features let recordings from different headsets share one feature space. Signals are cleaned exactly as
 in the app: ASR artifact repair (calibrated per subject) and the learned artifact detector.
 """

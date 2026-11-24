@@ -182,7 +182,8 @@ def run_with_server(browser, errors):
         ev = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/sessions/{sid}/events.csv").read().decode()
         for k in ("protocol_start", "block_start", "sam", "condition", "protocol_end"):
             assert k in ev, k
-        trials = datasets.load_sessions(os.path.join(sessions, sid))
+        assert json.load(open(os.path.join(sessions, sid, "meta.json")))["synthetic"] is True, "a simulator recording is marked synthetic"
+        trials = datasets.load_sessions(os.path.join(sessions, sid), synthetic=True)
         labels = {t.trial_id.split(":")[-1]: t.labels for t in trials}
         assert labels == {"calm1": {"valence": 1, "arousal": -1}, "stress1": {"valence": -1, "arousal": 1},
                           "watch1": {"valence": 1, "arousal": -1}}, labels   # SAM 3 -> low (1-3 low, 4-6 mid, 7-9 high)
