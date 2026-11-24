@@ -97,10 +97,20 @@ const WORLD_LOCKED = "The world is locked during a study session, so every condi
 
 type ModelEntry = { id: string; name: string; desc: string; model: ModelFile | null; origin: string; file?: string };
 type View = "live" | "study" | "arm" | "models" | "sessions" | "method" | "setup";
-const VIEWS: [View, string, keyof typeof ICONS][] = [
-  ["live", "Live", "live"], ["study", "Study", "study"], ["arm", "Robot arm", "arm"],
-  ["models", "Models", "models"], ["sessions", "Sessions", "sessions"], ["method", "Method", "method"], ["setup", "Setup", "setup"],
+/** [view, sidebar label, icon, short label for the phone tab bar] */
+const VIEWS: [View, string, keyof typeof ICONS, string][] = [
+  ["live", "Live world", "live", "Live"], ["setup", "Headset setup", "setup", "Setup"], ["study", "Run a study", "study", "Study"],
+  ["sessions", "Recordings", "sessions", "Saved"], ["models", "Mood decoders", "models", "Decode"], ["arm", "Robot arm", "arm", "Arm"],
+  ["method", "How it works", "method", "How"],
 ];
+/** A panel title in plain words, with the technical term underneath in small text. */
+function title(tag: "h1" | "h2", text: string, term?: string, id?: string): HTMLElement {
+  return h(tag, { id }, text, term ? h("small", { class: "term" }, term) : null);
+}
+/** A collapsible panel, closed by default: secondary detail that most people don't need. */
+function fold(text: string, term: string, ...kids: (Node | null)[]): HTMLDetailsElement {
+  return h("details", { class: "panel fold" }, h("summary", {}, title("h2", text, term)), ...kids);
+}
 
 // ------------------------------------------------------------------ app
 class App {
@@ -203,6 +213,7 @@ class App {
     this.loop();
     window.addEventListener("keydown", e => {
       if (e.key === "Escape" && this.arm.enabled) this.estop();
+      else if (e.key === "Escape" && !$("welcome").hidden) this.showWelcome(false);
     });
   }
 
@@ -210,9 +221,9 @@ class App {
   buildShell() {
     const nav = h("nav", { class: "nav", "aria-label": "Sections" });
     const tab = h("nav", { class: "tabbar", "aria-label": "Sections" });
-    for (const [v, label, icon] of VIEWS) {
+    for (const [v, label, icon, short] of VIEWS) {
       nav.append(h("button", { "data-view": v, onclick: () => this.go(v), html: `${ICONS[icon]}<span>${label}</span>` }));
-      tab.append(h("button", { "data-view": v, onclick: () => this.go(v), html: `${ICONS[icon]}<span>${label.split(" ")[0]}</span>` }));
+      tab.append(h("button", { "data-view": v, onclick: () => this.go(v), "aria-label": label, html: `${ICONS[icon]}<span>${short}</span>` }));
     }
     const app = h("div", { class: "app" },
       h("aside", { class: "sidebar" },
@@ -220,17 +231,18 @@ class App {
         nav,
         h("div", { class: "sidebar-foot" },
           h("div", { id: "serverLine" }, h("span", { class: "dot" }), "Checking for server…"),
-          h("div", {}, "EEG stays on this computer."))),
+          h("div", {}, "Brain data stays on this computer."))),
       h("main", { class: "main", id: "main", tabindex: "-1" },
         h("header", { class: "topbar" },
-          h("div", { class: "status" },
+          h("div", { class: "status", role: "group", "aria-label": "Status" },
             h("span", { class: "pill", id: "stSource" }, "No signal"),
             h("span", { class: "pill", id: "stQuality", title: "Share of clean 2-second windows over the last 10 s" },
-              h("span", { class: "qbar", html: "<i></i><i></i><i></i><i></i>" }), h("span", {}, "—")),
-            h("span", { class: "pill warn", id: "stCalib" }, "Waiting"),
-            h("span", { class: "pill", id: "stClean", hidden: true, title: "Artifact repair (ASR) and AI artifact detector" }, "Cleaning"),
-            h("span", { class: "pill rec", id: "stRec", hidden: true }, "REC")),
+              h("span", { class: "qbar", html: "<i></i><i></i><i></i><i></i>" }), h("span", {}, "Signal: —")),
+            h("span", { class: "pill warn", id: "stCalib" }, "Waiting for signal"),
+            h("span", { class: "pill", id: "stClean", hidden: true, title: "Artifact repair (ASR) and AI artifact detector" }, "Cleanup"),
+            h("span", { class: "pill rec", id: "stRec", hidden: true }, "Recording")),
           h("div", { class: "top-actions" },
+            h("button", { class: "btn small", id: "welcomeBtn", onclick: () => this.showWelcome(true) }, "Start here"),
             h("button", { class: "btn small", id: "demoBtn", onclick: () => this.toggleDemo(), title: "Self-running demo for an exhibit booth" }, "Booth demo"),
             h("button", { class: "estop", id: "estopTop", hidden: true, onclick: () => this.estop(), title: "Emergency stop (Esc)" }, "STOP ARM"),
             h("button", { class: "icon-btn", id: "themeBtn", "aria-label": "Switch theme", onclick: () => this.toggleTheme() }))),
@@ -278,25 +290,58 @@ class App {
     $("themeBtn").innerHTML = dark ? ICONS.sun : ICONS.moon;
   }
 
+  // ---------------------------------------------------------------- start-here panel
+  /** Show or hide the start panel on Live; closing it is remembered in this browser. */
+  showWelcome(on: boolean) {
+    const w = $("welcome");
+    if (!w) return;
+    w.hidden = !on;
+    store.set("welcomeDone", !on);
+    if (on) { this.go("live"); $("welcomeTitle").focus(); }
+  }
+
+  welcomePick(choice: "demo" | "headset" | "study") {
+    this.showWelcome(false);
+    if (choice === "demo") { if (!this.demo) this.toggleDemo(); }
+    else this.go(choice === "headset" ? "setup" : "study");
+  }
+
+  welcomePanel(): HTMLElement {
+    const choice = (k: "demo" | "headset" | "study", icon: keyof typeof ICONS, head: string, line: string) =>
+      h("button", { class: "welcome-choice", type: "button", id: `welcome-${k}`, onclick: () => this.welcomePick(k) },
+        h("span", { class: "welcome-icon", html: ICONS[icon] }), h("span", { class: "welcome-text" }, h("b", {}, head), h("span", {}, line)));
+    return h("div", { class: "welcome", id: "welcome", role: "region", "aria-labelledby": "welcomeTitle", hidden: store.get("welcomeDone", false) },
+      h("div", { class: "welcome-head" },
+        h("h2", { id: "welcomeTitle", tabindex: "-1" }, "Start here"),
+        h("button", { class: "btn small ghost", type: "button", onclick: () => this.showWelcome(false) }, "Close")),
+      h("p", {}, "Emotif reads brain signals (EEG), estimates the mood behind them and turns that mood into a 3-D world. How do you want to begin?"),
+      h("div", { class: "welcome-choices" },
+        choice("demo", "live", "Try it with the demo signal", "A simulated brain moves through four moods and the world changes with it. No headset needed."),
+        choice("headset", "setup", "Connect my headset", "Pick your headset (Muse, Emotiv, OpenBCI and more) and check that every sensor touches the skin."),
+        choice("study", "study", "Run a participant session", "Step-by-step guide for a study session: consent, headset fit, tasks and ratings.")),
+      h("p", { class: "welcome-foot" }, "You can open this panel again with Start here at the top."));
+  }
+
   // ---------------------------------------------------------------- live view
   viewLive(): HTMLElement {
     const bands = h("div", { class: "bands" });
     BANDS.forEach(([name], i) => bands.append(h("div", { class: "band" }, h("span", {}, name), h("div", { class: "bar" }, h("i", { id: `bb${i}` })), h("b", { id: `bv${i}` }, "—"))));
-    const bandSel = h("select", { id: "topoBand", "aria-label": "Band shown on the scalp map", onchange: e => { this.bandView = Number((e.target as HTMLSelectElement).value); } });
+    const bandSel = h("select", { id: "topoBand", onchange: e => { this.bandView = Number((e.target as HTMLSelectElement).value); } });
     BANDS.forEach(([name, lo, hi], i) => bandSel.append(h("option", { value: i, selected: i === 2 }, `${name} ${lo}–${hi} Hz`)));
     const target = h("select", { id: "dirTarget", "aria-label": "Target state", onchange: e => {
       this.uiDirector.target = (e.target as HTMLSelectElement).value;
       if (!this.protocolActive) this.director.target = { ...TARGETS[this.uiDirector.target].va };
     } });
     Object.entries(TARGETS).forEach(([k, t]) => target.append(h("option", { value: k }, t.label)));
-    return h("section", { class: "view", tabindex: "0", "data-view": "live" },
+    return h("section", { class: "view", tabindex: "0", "data-view": "live", "aria-labelledby": "liveTitle" },
+      h("h1", { class: "sr-only", id: "liveTitle" }, "Live world"),
       h("div", { class: "live" },
         h("div", { class: "stage" },
           h("div", { class: "viewport", id: "liveViewport" }),
           h("div", { class: "readout" },
-            h("span", { class: "eyebrow" }, "Decoded state"),
+            h("span", { class: "eyebrow" }, "Your mood right now"),
             h("span", { class: "word", id: "word" }, "—"),
-            h("span", { class: "va", id: "vaText" }, "V +0.00 · A +0.00"),
+            h("span", { class: "va", id: "vaText" }, "Pleasant +0.00 · Energy +0.00"),
             h("span", { class: "va", id: "extraText", hidden: true }, ""),
             h("span", { class: "va", id: "statesText", hidden: true }, ""),
             h("span", { class: "sub", id: "subText" }, "")),
@@ -315,42 +360,47 @@ class App {
             h("p", { class: "err", id: "baseErr", hidden: true })),
           h("div", { class: "demo-caption", id: "demoCaption", hidden: true },
             h("span", { class: "demo-step", id: "demoStep" }, ""), h("p", { id: "demoText" }, ""),
-            h("button", { class: "btn small", onclick: () => this.toggleDemo() }, "End demo"))),
-        h("div", { class: "timeline" },
-          h("div", { class: "legend" },
-            h("span", {}, h("i", { style: "background:var(--accent)" }), "Valence"),
-            h("span", {}, h("i", { style: "background:var(--ink-2)" }), "Arousal"),
-            h("span", { class: "grow" }),
-            h("span", { id: "timeText", class: "num" }, "0:00")),
-          h("canvas", { class: "plot", id: "timeline" })),
-        h("aside", { class: "live-side" },
-          h("section", { class: "panel" }, h("h3", {}, "Affect map", h("span", { class: "chip", id: "srcChip" }, "markers")),
-            h("canvas", { class: "plot", id: "circ" }),
-            h("p", { class: "note", id: "circNote" }, "Dot: decoded state. Diamond: what the world is showing.")),
-          h("section", { class: "panel", id: "cmpPanel" }, h("div", { class: "panel-h" }, "Brain vs face",
-              seg("cmpDim", [["a", "Arousal"], ["v", "Valence"]], "a", v => { this.cmpDim = v as "a" | "v"; })),
-            h("canvas", { class: "plot cmp-plot", id: "cmpPlot", role: "img", "aria-label": "Brain-only and standard decoder outputs over the last 30 seconds, with eye and jaw activity" }),
-            h("div", { class: "cmp-legend" },
-              h("span", {}, h("i", { class: "sw solid" }), "Brain-only ", h("b", { class: "num", id: "cmpBrain" }, "—")),
-              h("span", {}, h("i", { class: "sw dash" }), "Standard ", h("b", { class: "num", id: "cmpStd" }, "—"))),
-            h("p", { class: "note", id: "cmpNote" }, "")),
-          h("section", { class: "panel" }, h("div", { class: "panel-h" }, "Environment"),
-            seg("dirMode", [["mirror", "Mirror"], ["guide", "Guide"], ["sham", "Sham"]], "mirror", v => {
+            h("button", { class: "btn small", onclick: () => this.toggleDemo() }, "End demo")),
+          this.welcomePanel()),
+        h("aside", { class: "live-side", "aria-label": "Mood and world controls" },
+          h("section", { class: "panel" }, h("div", { class: "panel-h" }, title("h2", "Mood map", "valence (pleasant) × arousal (energy)"), h("span", { class: "chip", id: "srcChip" }, "markers")),
+            h("canvas", { class: "plot", id: "circ", role: "img", "aria-label": "Mood map: left to right is unpleasant to pleasant, bottom to top is low to high energy" }),
+            h("p", { class: "note", id: "circNote" }, "Dot: your decoded mood. Diamond: what the world is showing.")),
+          h("section", { class: "panel" }, h("div", { class: "panel-h" }, title("h2", "How the world responds", "director mode")),
+            seg("dirMode", [["mirror", "Mirror me"], ["guide", "Guide me"], ["sham", "Random"]], "mirror", v => {
               this.uiDirector.mode = v as DirectorMode;
               if (!this.protocolActive) this.director.mode = this.uiDirector.mode;
               this.marker("director_mode", v);
             }),
             h("div", { class: "row" }, h("label", { class: "field" }, "Guide toward", target)),
-            h("p", { class: "note", id: "dirNote" }, "Mirror: the world shows your decoded state.")),
+            h("p", { class: "note", id: "dirNote" }, "Mirror me: the world shows your decoded mood.")),
           this.worldPanel(),
-          h("section", { class: "panel" }, h("div", { class: "panel-h" }, "Scalp", bandSel),
+          h("p", { class: "fold-label" }, "Details"),
+          fold("Mood over time", "valence and arousal, last 2 minutes",
+            h("div", { class: "timeline" },
+              h("div", { class: "legend" },
+                h("span", {}, h("i", { style: "background:var(--accent)" }), "Pleasant (valence)"),
+                h("span", {}, h("i", { style: "background:var(--ink-2)" }), "Energy (arousal)"),
+                h("span", { class: "grow" }),
+                h("span", { id: "timeText", class: "num" }, "0:00")),
+              h("canvas", { class: "plot", id: "timeline" }))),
+          fold("Is it reading my brain or my face?", "brain-only vs standard decoder",
+            h("div", { id: "cmpPanel", class: "fold-body" },
+              seg("cmpDim", [["a", "Energy (arousal)"], ["v", "Pleasant (valence)"]], "a", v => { this.cmpDim = v as "a" | "v"; }),
+              h("canvas", { class: "plot cmp-plot", id: "cmpPlot", role: "img", "aria-label": "Brain-only and standard decoder outputs over the last 30 seconds, with eye and jaw activity" }),
+              h("div", { class: "cmp-legend" },
+                h("span", {}, h("i", { class: "sw solid" }), "Brain only ", h("b", { class: "num", id: "cmpBrain" }, "—")),
+                h("span", {}, h("i", { class: "sw dash" }), "Brain + face ", h("b", { class: "num", id: "cmpStd" }, "—"))),
+              h("p", { class: "note", id: "cmpNote" }, ""))),
+          fold("Why this mood?", "what the decoder weighed", h("ul", { class: "why", id: "why" })),
+          fold("Brain map", "band power on the scalp",
+            h("label", { class: "field" }, "Brain rhythm", bandSel),
             h("canvas", { class: "plot", id: "topo" }),
-            h("p", { class: "note" }, "Band power relative to your baseline (red higher, blue lower). Ring colour shows contact quality.")),
-          h("section", { class: "panel" }, h("div", { class: "panel-h" }, "Signals",
-              seg("traceMode", [["clean", "Cleaned"], ["filtered", "Before cleaning"]], "clean", v => { this.traceMode = v as "clean" | "filtered"; })),
+            h("p", { class: "note" }, "Each rhythm's strength compared with your resting baseline (red higher, blue lower). The ring colour shows how well each sensor touches the skin.")),
+          fold("Raw brain signals", "EEG traces, cleanup and band power",
+            seg("traceMode", [["clean", "Cleaned"], ["filtered", "Before cleaning"]], "clean", v => { this.traceMode = v as "clean" | "filtered"; }),
             h("canvas", { class: "plot", id: "traces" }),
-            h("div", { class: "clean-row", id: "cleanRow" }), bands),
-          h("section", { class: "panel" }, h("h3", {}, "Why this state"), h("ul", { class: "why", id: "why" })))));
+            h("div", { class: "clean-row", id: "cleanRow" }), bands))));
   }
 
   worldPanel(): HTMLElement {
@@ -361,19 +411,20 @@ class App {
     const theme = h("input", { type: "text", id: "worldPrompt", maxlength: 120, autocomplete: "off", placeholder: "optional, e.g. forest with a lake", onkeydown: e => {
       if ((e as KeyboardEvent).key === "Enter") { e.preventDefault(); this.generateWorld(theme.value); }
     } });
-    return h("section", { class: "panel" }, h("h3", {}, "World"),
-      h("p", { class: "note" }, "Your decoded state drives the light, colour, mist, wind, weather and pace. The theme and style only set the scenery."),
+    return h("section", { class: "panel" }, title("h2", "Change the scenery"),
+      h("p", { class: "note" }, "Your mood sets the light, colour, mist, wind, weather and pace. These only change the landscape."),
       h("label", { class: "field" }, "Art style", style),
-      h("div", { class: "row theme-row" }, h("label", { class: "field" }, "Theme", theme),
+      h("div", { class: "row theme-row" }, h("label", { class: "field" }, "Describe a place", theme),
         h("button", { class: "btn", id: "worldGo", onclick: () => this.generateWorld(theme.value) }, "Apply")),
+      h("p", { class: "note", id: "worldStatus", role: "status" }, ""),
       h("label", { class: "check" }, h("input", { type: "checkbox", id: "worldExplore", checked: true, onchange: e => {
         this.world.explore = (e.target as HTMLInputElement).checked; store.set("explore", this.world.explore);
-      } }), h("span", {}, "Explorer wanders on its own (click the world, then arrow keys or W A S D steer)")),
+      } }), h("span", {}, "Walk around on its own (or click the world and steer with the arrow keys or W A S D)")),
       h("label", { class: "check" }, h("input", { type: "checkbox", id: "worldMind", checked: store.get("worldMind", true), onchange: e => {
         this.world.interactive = (e.target as HTMLInputElement).checked; store.set("worldMind", this.world.interactive);
-      } }), h("span", {}, "Move objects with your brain: focus to lift the glowing crystal, relax to set it down (alpha rhythm, face ignored)")),
-      h("p", { class: "note" }, "Each world is grown from your resting brain signal: when the baseline finishes, its spectrum seeds the land, so no two sessions are the same. Photographs from an open image library give the ground and sky their texture (credits in Method)."),
-      h("p", { class: "note", id: "worldStatus", role: "status" }, ""));
+      } }), h("span", {}, "Move the glowing crystal with your brain: focus to lift it, relax to set it down (uses the alpha rhythm; face movement is ignored)")),
+      h("details", { class: "more" }, h("summary", {}, "How the world is made"),
+        h("p", { class: "note" }, "Each world is grown from your resting brain signal: when the baseline finishes, its spectrum seeds the land, so no two sessions are the same. Photographs from an open image library give the ground and sky their texture (credits in How it works).")));
   }
 
   setWorldStyle(st: Style | "auto") {
@@ -423,14 +474,14 @@ class App {
       h("div", { class: "cols-2" },
         h("div", { class: "cards" },
           h("section", { class: "panel", id: "wizard" },
-            h("h3", {}, "Guided session"),
+            title("h2", "Guided session", "for the approved two-session study"),
             h("div", { class: "cards two" }, pick(1), pick(2)),
             h("ol", { class: "wiz" },
               h("li", { id: "wiz1" }, h("b", {}, "Connect the headset"),
-                h("p", { class: "note" }, "EMOTIV Launcher open and signed in, Insight switched on. Then Setup \u2192 Emotiv Insight / EPOC X \u2192 Use this source."),
+                h("p", { class: "note" }, "EMOTIV Launcher open and signed in, Insight switched on. Then Headset setup \u2192 Emotiv Insight / EPOC X \u2192 Use this source."),
                 h("p", { class: "note", id: "wiz1s" }),
-                h("div", { class: "row" }, h("button", { class: "btn small", onclick: () => this.go("setup") }, "Open Setup"))),
-              h("li", { id: "wiz2" }, h("b", {}, "Participant"),
+                h("div", { class: "row" }, h("button", { class: "btn small", onclick: () => this.go("setup") }, "Open Headset setup"))),
+              h("li", { id: "wiz2" }, h("b", {}, "Participant code and consent"),
                 h("label", { class: "field" }, "Participant code (no names)", h("input", { type: "text", id: "pcode", value: store.get("pcode", "P01"), maxlength: 32, autocomplete: "off", spellcheck: "false",
                   oninput: () => this.paintWizard(),
                   onchange: () => { store.set("pcode", this.code); this.wiz.check = null; this.wiz.mainDone = false; this.loadPersonalStates(); this.paintWizard(); } })),
@@ -453,18 +504,18 @@ class App {
                 h("p", { class: "note", id: "wiz6n" }, "Appears when the session is done."),
                 h("div", { class: "row" }, h("button", { class: "btn", id: "wizNext", onclick: () => this.wizardReset() }, "Next participant")))),
             h("p", { class: "err", id: "studyErr", hidden: true })),
-          h("section", { class: "panel", id: "runSummary" }, h("h3", {}, "Results"), h("p", { class: "note" }, "Finished sessions appear here."))),
+          h("section", { class: "panel", id: "runSummary" }, h("h2", {}, "Results"), h("p", { class: "note" }, "Finished sessions appear here."))),
         h("div", { class: "cards" },
-          h("section", { class: "panel" }, h("h3", {}, "Your states"), h("div", { id: "statesReport" })),
-          h("details", { class: "panel" }, h("summary", {}, "All protocols (advanced)"),
+          h("section", { class: "panel" }, title("h2", "Personal mood profile", "personal state calibration"), h("div", { id: "statesReport" })),
+          h("details", { class: "panel fold" }, h("summary", {}, title("h2", "All protocols", "advanced: pick any task sequence")),
             list,
             h("label", { class: "check" }, h("input", { type: "checkbox", id: "recordRun", checked: true }), h("span", { id: "recordLabel" }, "Record EEG, events and ratings to this computer")),
             h("div", { class: "row" },
               h("button", { class: "btn", id: "startRun", onclick: () => this.startProtocol() }, "Start selected protocol"),
               h("button", { class: "btn", id: "recBtn", onclick: () => this.toggleRecording() }, "Record without protocol")),
             h("p", { class: "note", id: "studyNote" }, "Uses the participant code and consent box above.")),
-          h("section", { class: "panel" }, h("h3", {}, "Daily check-ins"), h("div", { id: "checkinReport" })),
-          h("section", { class: "panel" }, h("h3", {}, "During a session"),
+          h("section", { class: "panel" }, title("h2", "Daily check-ins", "resting markers vs mood and sleep"), h("div", { id: "checkinReport" })),
+          h("section", { class: "panel" }, h("h2", {}, "Tips for the session"),
             h("p", { class: "note" }, "Stay out of the participant's view and keep the room quiet. If they ask about the world, say it changes on its own; don't name the condition. Press Stop session at any time; data recorded so far is kept.")))));
   }
 
@@ -572,7 +623,8 @@ class App {
     const jogBtn = (label: string, dx: number, dy: number, dz: number, dt = 0) => h("button", { class: "btn", type: "button", onclick: () => {
       this.arm.manual = { x: this.arm.manual.x + dx, y: this.arm.manual.y + dy, z: this.arm.manual.z + dz, t: this.arm.manual.t + dt };
     } }, label);
-    return h("section", { class: "view", tabindex: "0", "data-view": "arm", hidden: true },
+    return h("section", { class: "view", tabindex: "0", "data-view": "arm", hidden: true, "aria-labelledby": "armTitle" },
+      h("h1", { class: "sr-only", id: "armTitle" }, "Robot arm"),
       h("div", { class: "armview" },
         h("div", { class: "stage" },
           h("div", { class: "viewport", id: "armViewport" }),
@@ -582,14 +634,14 @@ class App {
             h("span", { class: "va", id: "armPose" }, ""),
             h("span", { class: "sub", id: "armSub" }, ""))),
         h("aside", { class: "arm-side" },
-          h("section", { class: "panel" }, h("h3", {}, "RoArm-M2-S"),
+          h("section", { class: "panel" }, title("h2", "Connect the arm", "RoArm-M2-S"),
             seg("armLink", [["sim", "Simulated"], ["serial", "USB"], ["http", "Wi-Fi"]], store.get<string>("armLink", "sim"), v => { store.set("armLink", v); this.paintArmLink(); }),
             h("label", { class: "field", id: "armAddrWrap" }, h("span", { id: "armAddrLabel" }, "Address"),
               h("input", { type: "text", id: "armAddr", value: store.get("armAddr", ""), spellcheck: "false", onchange: e => store.set("armAddr", (e.target as HTMLInputElement).value) })),
             h("div", { class: "row" }, h("button", { class: "btn", id: "armConnect", onclick: () => this.armConnect() }, "Connect"), h("span", { class: "chip", id: "armState" }, "twin only")),
             h("p", { class: "note", id: "armLinkNote" }),
             h("p", { class: "err", id: "armErr", hidden: true })),
-          h("section", { class: "panel" }, h("h3", {}, "Safety"),
+          h("section", { class: "panel" }, h("h2", {}, "Safety"),
             h("label", { class: "check" }, h("input", { type: "checkbox", id: "armClear", onchange: () => this.paintArmButtons() }),
               h("span", {}, "The space around the arm is clear and an adult is supervising.")),
             h("div", { class: "row" },
@@ -599,7 +651,7 @@ class App {
             h("label", { class: "field" }, h("span", { id: "speedLabel" }, `Speed limit ${lim.speed_mm_s} mm/s`),
               h("input", { type: "range", id: "armSpeed", min: 20, max: 200, step: 10, value: lim.speed_mm_s, oninput: e => this.setArmSpeed(Number((e.target as HTMLInputElement).value)) })),
             h("p", { class: "note" }, "Every command passes a workspace limit, a speed limit and a 1-second watchdog. If the browser stops sending, the arm holds still.")),
-          h("section", { class: "panel" }, h("h3", {}, "Control"),
+          h("section", { class: "panel" }, title("h2", "What the arm does", "control mode"),
             seg("armMode", [["embody", "Embody"], ["draw", "Draw"], ["intent", "Intent"], ["manual", "Manual"]], "embody", v => this.setArmMode(v as ArmMode)),
             h("div", { id: "modeEmbody" }, h("p", { class: "note" }, "The arm's posture follows the decoded state: lifted and open when pleasant, low and closed when unpleasant; it sways faster with higher arousal.")),
             h("div", { id: "modeDraw", hidden: true, class: "cards" },
@@ -628,32 +680,32 @@ class App {
                 jogBtn("x +10", 10, 0, 0), jogBtn("y +10", 0, 10, 0), jogBtn("z +10", 0, 0, 10),
                 jogBtn("x −10", -10, 0, 0), jogBtn("y −10", 0, -10, 0), jogBtn("z −10", 0, 0, -10),
                 jogBtn("Open", 0, 0, 0, -0.3), jogBtn("Close", 0, 0, 0, 0.3), h("button", { class: "btn", onclick: () => { this.arm.manual = { ...INIT }; } }, "Init pose")))),
-          h("section", { class: "panel" }, h("h3", {}, "Readout"),
+          h("section", { class: "panel" }, title("h2", "Arm position", "readout"),
             h("dl", { class: "kv", id: "armKv" })))));
   }
 
   // ---------------------------------------------------------------- models view
   viewModels(): HTMLElement {
     return h("section", { class: "view", tabindex: "0", "data-view": "models", hidden: true },
-      h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "Models"),
-        h("p", {}, "Every model reads the same 17 scalp regions, so one model runs on any headset. Missing regions are masked."))),
+      h("div", { class: "view-head" }, h("div", {}, title("h1", "Mood decoders", "models"),
+        h("p", {}, "A decoder turns brain signals into a mood estimate. Every decoder reads the same 17 scalp regions, so one decoder works with any headset; regions your headset doesn't cover are skipped."))),
       h("div", { class: "cols-2" },
         h("div", { class: "cards" },
-          h("section", { class: "panel" }, h("h3", {}, "Available"), h("div", { class: "cards", id: "modelList" }),
+          h("section", { class: "panel" }, title("h2", "Choose a decoder", "the first one is recommended"), h("div", { class: "cards", id: "modelList" }),
             h("div", { class: "row" }, h("label", { class: "btn", for: "modelFile" }, "Load model file…"),
               h("input", { type: "file", id: "modelFile", accept: ".json,application/json", hidden: true, onchange: e => this.uploadModel(e) })),
             h("p", { class: "err", id: "modelErr", hidden: true })),
-          h("section", { class: "panel" }, h("h3", {}, "Personalize"), h("div", { id: "personal" }))),
+          h("section", { class: "panel" }, title("h2", "Fit a decoder to one person", "personalize"), h("div", { id: "personal" }))),
         h("section", { class: "panel", id: "modelDetail" })));
   }
 
   // ---------------------------------------------------------------- sessions view
   viewSessions(): HTMLElement {
     return h("section", { class: "view", tabindex: "0", "data-view": "sessions", hidden: true },
-      h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "Sessions"),
-        h("p", {}, "Recordings saved by the Emotif server. Each one loads straight into train.py.")),
+      h("div", { class: "view-head" }, h("div", {}, title("h1", "Recordings", "sessions"),
+        h("p", {}, "Sessions saved by the Emotif server. Open a report, replay a recording, or download its files (they load straight into train.py).")),
         h("button", { class: "btn", onclick: () => this.refreshSessions() }, "Refresh")),
-      h("section", { class: "panel" }, h("div", { id: "sessionList", class: "table-wrap" })),
+      h("section", { class: "panel", "aria-label": "Saved sessions" }, h("div", { id: "sessionList", class: "table-wrap" })),
       h("section", { class: "panel report", id: "report", hidden: true }));
   }
 
@@ -673,10 +725,11 @@ class App {
     const datalist = h("datalist", { id: "electrodeNames" });
     knownNames().filter(n => /^[A-Z]+[0-9Z]+$/.test(n)).sort().forEach(n => datalist.append(h("option", { value: n.replace(/Z$/, "z").replace(/^FP/, "Fp") })));
     return h("section", { class: "view", tabindex: "0", "data-view": "setup", hidden: true },
-      h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "Setup"), h("p", {}, "Choose a signal source, name its electrodes, and tune processing."))),
-      h("div", { class: "cols" },
-        h("section", { class: "panel" }, h("h3", {}, "Signal source"),
-          h("div", { class: "cards", id: "sourceCards" },
+      h("div", { class: "view-head" }, h("div", {}, title("h1", "Headset setup"), h("p", {}, "Three steps: choose where the brain signal comes from, check that every sensor touches the skin, then check where each sensor sits."))),
+      h("div", { class: "setup-steps" },
+        h("section", { class: "panel step step-wide" }, h("div", { class: "step-h" }, h("span", { class: "step-n", "aria-hidden": "true" }, "1"), title("h2", "Choose where the signal comes from", "Step 1 of 3 · signal source")),
+          h("p", { class: "note" }, "Pick your headset and press Use this source. No headset? The simulator makes a realistic practice signal."),
+          h("div", { class: "cards source-grid", id: "sourceCards" },
             card("sim", "Simulator", [h("span", {}, "Synthetic EEG for demos and testing, including blinks and jaw clenches."),
               h("label", { class: "field" }, "Electrode layout", montageSel), h("label", { class: "field" }, "Behaviour", simMode)]),
             card("muse", "Muse 2 / Muse S over Bluetooth", [h("span", {}, "Direct from the browser in Chrome or Edge. No other software needed.")]),
@@ -699,40 +752,42 @@ class App {
               h("div", { class: "row" }, h("input", { type: "file", id: "csvFile", accept: ".csv,.edf,.bdf,text/csv", "aria-label": "Recording file", onchange: e => this.loadCsv(e) }),
                 h("label", { class: "field", style: "max-width:140px" }, "Hz if no time column", h("input", { type: "number", id: "csvFs", value: 256, min: 100 })))])),
           h("p", { class: "err", id: "srcErr", hidden: true })),
-        h("section", { class: "panel" }, h("h3", {}, "Electrodes"),
-          h("p", { class: "note" }, "Name each channel with its 10-20 position so the decoder knows where it sits. Unknown names are ignored."),
+        h("section", { class: "panel step" }, h("div", { class: "step-h" }, h("span", { class: "step-n", "aria-hidden": "true" }, "2"), title("h2", "Check that every sensor touches the skin", "Step 2 of 3 · electrode fit")),
+          h("p", { class: "note" }, "Live contact check. Fix anything that isn't green before you record: move hair aside and press the sensor gently onto the skin."),
+          h("canvas", { class: "plot topo-lg", id: "fitTopo" }),
+          h("ul", { class: "fit-list", id: "fitList" })),
+        h("section", { class: "panel step" }, h("div", { class: "step-h" }, h("span", { class: "step-n", "aria-hidden": "true" }, "3"), title("h2", "Tell Emotif where each sensor sits", "Step 3 of 3 · electrode names (10-20 system)")),
+          h("p", { class: "note" }, "Most headsets fill this in for you. If a name shows unknown, type its 10-20 position (for example Fp1 or O2) so the decoder knows where it sits; unknown names are ignored."),
           h("div", { id: "montageTable", class: "table-wrap" }), datalist,
           h("canvas", { class: "plot topo-lg", id: "montageTopo" }),
-          h("p", { class: "note", id: "montageCov" })),
-        h("section", { class: "panel" }, h("h3", {}, "Processing"),
+          h("p", { class: "note", id: "montageCov" }))),
+      h("h2", { class: "section-title" }, "Settings"),
+      h("div", { class: "cols" },
+        h("section", { class: "panel" }, title("h2", "Signal cleanup", "processing: the defaults work for most people"),
           h("div", { class: "row" },
-            h("label", { class: "field" }, "Baseline (s)", h("input", { type: "number", id: "calibSec", min: 10, max: 300, step: 5, value: this.engine.settings.calibSec, onchange: e => this.setSetting("calibSec", Number((e.target as HTMLInputElement).value)) })),
-            h("label", { class: "field" }, "Reject above (µV p-p)", h("input", { type: "number", id: "rejectUv", min: 0, step: 10, value: this.engine.settings.rejectUv, onchange: e => this.setSetting("rejectUv", Number((e.target as HTMLInputElement).value)) }))),
+            h("label", { class: "field" }, "Resting baseline length (s)", h("input", { type: "number", id: "calibSec", min: 10, max: 300, step: 5, value: this.engine.settings.calibSec, onchange: e => this.setSetting("calibSec", Number((e.target as HTMLInputElement).value)) })),
+            h("label", { class: "field" }, "Ignore windows louder than (µV peak to peak)", h("input", { type: "number", id: "rejectUv", min: 0, step: 10, value: this.engine.settings.rejectUv, onchange: e => this.setSetting("rejectUv", Number((e.target as HTMLInputElement).value)) }))),
           h("label", { class: "field" }, "Normalization",
             h("select", { id: "normSel", onchange: e => this.setSetting("normalization", (e.target as HTMLSelectElement).value as Normalization) },
               h("option", { value: "auto", selected: this.engine.settings.normalization === "auto" }, "Automatic (baseline for markers, whole session for models)"),
               h("option", { value: "baseline", selected: this.engine.settings.normalization === "baseline" }, "Resting baseline (frozen)"),
               h("option", { value: "session", selected: this.engine.settings.normalization === "session" }, "Whole session (running)"))),
           h("label", { class: "check" }, h("input", { type: "checkbox", id: "cleanAsr", checked: this.engine.settings.cleaning.asr, onchange: () => this.setCleaning() }),
-            h("span", {}, "Repair artifacts (Artifact Subspace Reconstruction)")),
+            h("span", {}, "Repair blinks, muscle and movement bursts (Artifact Subspace Reconstruction, ASR)")),
           h("label", { class: "field" }, "Repair threshold k (lower repairs more; 20 tested best)",
             h("input", { type: "number", id: "cleanK", min: 3, max: 50, step: 1, value: this.engine.settings.cleaning.asrK, onchange: () => this.setCleaning() })),
           h("label", { class: "check" }, h("input", { type: "checkbox", id: "cleanDet", checked: this.engine.settings.cleaning.detector, onchange: () => this.setCleaning() }),
             h("span", {}, "AI artifact detector: leave out channels with eye or muscle activity")),
-          h("button", { class: "btn", onclick: () => { this.engine.resetCalibration(); this.world.clearStrata(); this.marker("recalibrate", ""); } }, "Recalibrate now"),
+          h("button", { class: "btn", onclick: () => { this.engine.resetCalibration(); this.world.clearStrata(); this.marker("recalibrate", ""); } }, "Restart the baseline now"),
           h("p", { class: "note" }, "Pipeline: 0.5 Hz high-pass and 50/60 Hz notch, then ASR repairs eye, muscle and movement bursts using statistics learned from your baseline, then the AI detector checks every channel of every 2-second window. Changing these starts a new baseline.")),
-        h("section", { class: "panel" }, h("h3", {}, "Electrode fit"),
-          h("p", { class: "note" }, "Live contact check. Fix anything that isn't green before recording."),
-          h("canvas", { class: "plot topo-lg", id: "fitTopo" }),
-          h("ul", { class: "fit-list", id: "fitList" })),
-        h("section", { class: "panel" }, h("h3", {}, "Display"),
+        h("section", { class: "panel" }, title("h2", "Display and sound"),
           h("label", { class: "check" }, h("input", { type: "checkbox", id: "reduceMotion", checked: this.world.reducedMotion, onchange: e => { this.world.reducedMotion = (e.target as HTMLInputElement).checked; store.set("reducedMotion", this.world.reducedMotion); } }),
             h("span", {}, "Reduce motion in the 3-D world")),
           h("label", { class: "check" }, h("input", { type: "checkbox", id: "sonify", onchange: e => this.setSound((e.target as HTMLInputElement).checked) }),
-            h("span", {}, "Play the decoded state as sound (pitch and chord follow valence, pulse follows arousal)")),
+            h("span", {}, "Play the mood as sound (pitch and chord follow how pleasant it is, the pulse follows energy)")),
           h("p", { class: "note" }, "Screen readers hear the state when it changes and holds for 5 seconds, at most every 10 seconds. The world's brightness can't change fast enough to flash (fewer than 3 flashes per second, WCAG 2.3.1), even if the decoder jumps."),
           h("p", { class: "note" }, "Theme follows your system; switch it with the button at the top right.")),
-        h("section", { class: "panel" }, h("h3", {}, "Privacy and safety"),
+        h("section", { class: "panel" }, title("h2", "Privacy and safety"),
           h("p", { class: "note" }, "EEG never leaves this computer. Recordings use participant codes, not names. Emotion estimates from EEG are uncertain: treat them as research measurements, never as a diagnosis."),
           h("p", { class: "note" }, "Research with people needs approval from your school's review board (and for ISEF, the SRC/IRB forms) before you collect any data."))));
   }
@@ -821,7 +876,8 @@ class App {
     this.world.clearStrata();
     this.lastStrata = 0;
     if (origin === "browser" && this.link.available) this.link.send({ type: "stream_meta", fs, channels, label });
-    $("stSource").textContent = label;
+    $("stSource").textContent = `Source: ${label}`;
+    $("stSource").title = `Source: ${label}`;
     this.renderMontage();
     this.paintArmButtons();
   }
@@ -836,9 +892,9 @@ class App {
 
   setSourceStatus(text: string, kind: "ok" | "warn" | "error") {
     const el = $("stSource");
-    el.className = `pill ${kind === "error" ? "bad" : kind === "warn" ? "warn" : ""}`;
-    if (kind !== "ok" || !this.streamLabel) el.textContent = text;
-    else el.textContent = this.streamLabel;
+    el.className = `pill ${kind === "error" ? "bad" : kind === "warn" ? "warn" : "ok"}`;
+    el.textContent = `Source: ${kind !== "ok" || !this.streamLabel ? text : this.streamLabel}`;
+    el.title = el.textContent;
     if (kind === "error") this.showErr("srcErr", text);
   }
 
@@ -856,7 +912,7 @@ class App {
   // ---------------------------------------------------------------- server
   onServer(up: boolean) {
     const line = $("serverLine");
-    line.replaceChildren(h("span", { class: `dot ${up ? "ok" : ""}` }), up ? "Server connected" : "Browser-only mode");
+    line.replaceChildren(h("span", { class: `dot ${up ? "ok" : ""}` }), up ? "Server connected: recording on" : "No server: recording off");
     $<HTMLInputElement>("recordRun").disabled = !up;
     $("recordLabel").textContent = up ? "Record EEG, events and ratings to this computer" : "Recording needs the Emotif server (python -m emotif.server)";
     $<HTMLButtonElement>("recBtn").disabled = !up;
@@ -886,7 +942,7 @@ class App {
   paintRec() {
     const el = $("stRec");
     el.hidden = !this.recording;
-    if (this.recording) el.textContent = `REC ${mmss(this.recording.seconds)}`;
+    if (this.recording) el.textContent = `Recording ${mmss(this.recording.seconds)}`;
     $("recBtn").textContent = this.recording ? "Stop recording" : "Record without protocol";
   }
 
@@ -930,7 +986,7 @@ class App {
   // ---------------------------------------------------------------- protocol
   async startProtocol(custom?: Protocol) {
     this.showErr("studyErr", "");
-    if (!this.engine.C) { this.showErr("studyErr", "Connect a signal source first (Setup)."); return; }
+    if (!this.engine.C) { this.showErr("studyErr", "Connect a signal source first (Headset setup)."); return; }
     const pid = store.get("protocol", "quick");
     const p = custom ?? PROTOCOLS.find(x => x.id === pid) ?? PROTOCOLS[0];
     const code = $<HTMLInputElement>("pcode").value.trim() || "P01";
@@ -1073,12 +1129,12 @@ class App {
         h("td", { class: "n" }, b.sam ? String(b.sam.valence) : "—"), h("td", { class: "n" }, b.sam ? String(b.sam.arousal) : "—"),
         h("td", { class: "n" }, m ? fmtSigned(m.v) : "—"), h("td", { class: "n" }, m ? fmtSigned(m.a) : "—")));
     }
-    box.replaceChildren(h("h3", {}, "Results"),
+    box.replaceChildren(h("h2", {}, "Results"),
       h("p", { class: "note" }, `${PROTOCOLS.find(p => p.id === r.protocol)?.name ?? r.protocol} · ${r.code}${r.aborted ? " · stopped early" : ""}. Block order: ${r.order.join(", ")}.`),
       h("div", { class: "table-wrap" }, h("table", { class: "data" },
         h("thead", {}, h("tr", {}, h("th", {}, "Block"), h("th", {}, "World"), h("th", { class: "n" }, "SAM val."), h("th", { class: "n" }, "SAM aro."), h("th", { class: "n" }, "Decoded V"), h("th", { class: "n" }, "Decoded A"))),
         tbody)),
-      h("p", { class: "note" }, "SAM is 1–9. Decoded values are means over each block, −1 to +1. Open Models → Personalize to fit a model to these ratings."));
+      h("p", { class: "note" }, "SAM is 1–9. Decoded values are means over each block, −1 to +1. Open Mood decoders → Fit a decoder to one person to fit a decoder to these ratings."));
   }
 
   // ---------------------------------------------------------------- per-window updates
@@ -1111,17 +1167,18 @@ class App {
     }
     if (this.checkinAcc && ev.bandPower && !ev.reject) this.checkinAcc.add(ev.bandPower, ev.masked);
     const sc = $("stCalib");
-    if (!ev.calibrated) { sc.textContent = `Baseline ${Math.round(ev.calibProgress * this.engine.settings.calibSec)}/${this.engine.settings.calibSec} s`; sc.className = "pill warn"; }
-    else if (ev.reject) { sc.textContent = "Artifact · holding"; sc.className = "pill bad"; }
-    else if (ev.out?.faceHold) { sc.textContent = "Face activity · holding"; sc.className = "pill warn"; }
-    else { sc.textContent = "Decoding"; sc.className = "pill ok"; }
+    if (!ev.calibrated) { sc.textContent = `Calibrating ${Math.round(ev.calibProgress * this.engine.settings.calibSec)}/${this.engine.settings.calibSec} s`; sc.className = "pill warn"; }
+    else if (ev.reject) { sc.textContent = "Paused: noisy signal"; sc.className = "pill bad"; }
+    else if (ev.out?.faceHold) { sc.textContent = "Paused: face movement"; sc.className = "pill warn"; }
+    else { sc.textContent = "Reading mood"; sc.className = "pill ok"; }
     this.paintCleaning(ev);
     const ro = document.querySelector<HTMLElement>("#liveViewport ~ .readout");
     if (ro) ro.hidden = !ev.calibrated;
     const q = $("stQuality"), pct = Math.round(ev.quality * 100);
     q.className = `pill ${ev.quality > 0.8 ? "ok" : ev.quality > 0.5 ? "warn" : "bad"}`;
     q.querySelectorAll(".qbar i").forEach((b, i) => b.classList.toggle("on", ev.quality > i / 4));
-    (q.lastElementChild as HTMLElement).textContent = `${pct}%`;
+    (q.lastElementChild as HTMLElement).textContent = `Signal: ${ev.quality > 0.8 ? "good" : ev.quality > 0.5 ? "fair" : "poor"}`;
+    q.title = `${pct}% of 2-second windows were clean over the last 10 s`;
     if (ev.bandPower) {
       const tot = [0, 0, 0, 0, 0];
       ev.bandPower.forEach((r, c) => { if (ev.good[c]) for (let b = 0; b < 5; b++) tot[b] += r[b]; });
@@ -1147,13 +1204,13 @@ class App {
       if (this.trail.length > 80) this.trail.shift();
       $("word").textContent = emotionWord(o.v, o.a);
       $("word").style.color = affectCss(o.v, o.a);
-      $("vaText").textContent = `V ${fmtSigned(o.v)} · A ${fmtSigned(o.a)}${o.conf !== null ? ` · p ${o.conf.toFixed(2)}` : ""}`;
+      $("vaText").textContent = `Pleasant ${fmtSigned(o.v)} · Energy ${fmtSigned(o.a)}${o.conf !== null && Number.isFinite(o.conf) ? ` · confidence ${Math.round(o.conf * 100)} %` : ""}`;
       const extras = Object.entries(o.extra ?? {});
       $("extraText").hidden = !extras.length;
       // extra heads report the expected class value (-1..1); shown as 0-100 % toward the head's positive class
       $("extraText").textContent = extras.map(([k, x]) => `${k[0].toUpperCase()}${k.slice(1).replace(/_/g, " ")} ${Math.round((x + 1) * 50)} %`).join(" · ") + (extras.length ? " (experimental)" : "");
-      $("subText").textContent = `${o.source === "model" ? this.models.find(m => m.id === this.modelId)?.name ?? "model" : "neuro-markers"} · world: ${this.director.mode}`;
-      $("srcChip").textContent = o.source === "model" ? "model" : "markers";
+      $("subText").textContent = `Decoder: ${o.source === "model" ? this.models.find(m => m.id === this.modelId)?.name ?? "model" : "neuro-markers"} · World: ${{ mirror: "mirrors you", guide: "guides you", sham: "random (control)" }[this.director.mode] ?? this.director.mode}`;
+      $("srcChip").textContent = o.source === "model" ? "decoder: model" : "decoder: markers";
       if (this.recording) this.link.send({ type: "affect", v: o.v, a: o.a, conf: o.conf, label: emotionWord(o.v, o.a), quality: ev.quality });
       const sts = Object.entries(o.states ?? {});
       $("statesText").hidden = !sts.length;
@@ -1175,7 +1232,7 @@ class App {
     $("cmpStd").textContent = o?.cmp ? fmtSigned(d === "a" ? o.cmp.a : o.cmp.v) : "—";
     $("cmpNote").textContent = cmpOn
       ? `Both decoders read the same signal; the brain-only one first removes what eye and jaw activity explain, and holds its value when that activity is beyond its training range${o?.faceHold ? " (holding now)" : ""}. The strip shows eye and jaw activity above your baseline.`
-      : "Select the brain-only model (Models) to see it next to the standard decoder. The strip shows eye and jaw activity above your baseline.";
+      : "Choose the brain-only decoder (Mood decoders) to see it next to the standard decoder. The strip shows eye and jaw activity above your baseline.";
   }
 
   renderWhy(ev: WindowEvent) {
@@ -1430,7 +1487,7 @@ class App {
     if (!entry) return;
     const m = entry.model;
     if (!m) {
-      box.replaceChildren(h("h3", {}, "Neuro-markers"),
+      box.replaceChildren(h("h2", {}, "Neuro-markers"),
         h("p", { class: "note" }, "Uses two well-studied EEG patterns, measured against your own resting baseline:"),
         h("dl", { class: "kv" },
           h("dt", {}, "Valence"), h("dd", {}, "alpha(right) − alpha(left), frontal"),
@@ -1455,9 +1512,9 @@ class App {
           h("td", { class: "n" }, cv.within?.[l] ? cv.within[l].bacc.toFixed(3) : "—"),
           h("td", { class: "n" }, cv.loso?.[l] ? cv.loso[l].bacc.toFixed(3) : "—")));
       }
-      tables.push(h("p", { class: "note" }, `${target}: balanced accuracy. Chance = ${(cv.chance_bacc ?? NaN).toFixed(3)}.`),
+      tables.push(h("p", { class: "note" }, `${target}: balanced accuracy (1 = perfect; chance = ${(cv.chance_bacc ?? NaN).toFixed(3)}). Same people: tested on new recordings of people it trained on. New person: tested on people it never saw (leave-one-subject-out, LOSO).`),
         h("div", { class: "table-wrap" }, h("table", { class: "data" },
-          h("thead", {}, h("tr", {}, h("th", {}, "Electrode layout"), h("th", { class: "n" }, "Within-subject"), h("th", { class: "n" }, "New subject (LOSO)"))), tb)));
+          h("thead", {}, h("tr", {}, h("th", {}, "Electrode layout"), h("th", { class: "n" }, "Same people"), h("th", { class: "n" }, "New person (LOSO)"))), tb)));
     }
     const headSel = h("select", { id: "wHead", "aria-label": "Output shown on the weight map" });
     Object.keys(m.heads).forEach(k => headSel.append(h("option", { value: k }, k)));
@@ -1474,7 +1531,7 @@ class App {
       drawTopomap(cv, REGIONS, vals.map(v => v / mx * 2), REGIONS.map(() => "plain"), { range: 2 });
     };
     headSel.onchange = paint; bandSel.onchange = paint;
-    box.replaceChildren(h("h3", {}, m.name), kv, ...(m.notes ? [h("p", { class: "note" }, m.notes)] : []), ...tables,
+    box.replaceChildren(h("h2", {}, m.name), kv, ...(m.notes ? [h("p", { class: "note" }, m.notes)] : []), ...tables,
       h("div", { class: "panel-h" }, "What the model looks at", h("span", { class: "row" }, headSel, bandSel)), cv,
       h("p", { class: "note" }, "Weight of each scalp region toward the highest class (red) or lowest (blue). Only single-layer models can be drawn this way."));
     requestAnimationFrame(paint);
@@ -1582,7 +1639,7 @@ class App {
     }
     try {
       const r = await this.link.api<{ sessions: SessionMeta[] }>("/api/sessions");
-      if (!r.sessions.length) { box.replaceChildren(h("p", { class: "note" }, "No sessions yet. Record one from Study.")); return; }
+      if (!r.sessions.length) { box.replaceChildren(h("p", { class: "note" }, "No sessions yet. Record one from Run a study.")); return; }
       const tb = h("tbody");
       for (const s of r.sessions) {
         const link = (f: string) => h("a", { href: `/api/sessions/${encodeURIComponent(s.id)}/${f}` }, f.split(".")[0]);
@@ -1664,11 +1721,12 @@ class App {
     else {
       pill.hidden = false;
       const parts: string[] = [];
-      if (e.asrActive) parts.push(`ASR ${Math.round(ev.repaired * 100)}%`);
       const bad = ev.masked.filter(Boolean).length;
-      if (e.detectorActive) parts.push(bad ? `${bad} ch held out` : "all ch clean");
-      pill.textContent = parts.length ? parts.join(" · ") : "Cleaning off";
-      pill.className = `pill ${bad > ev.masked.length / 2 ? "warn" : ""}`;
+      if (e.detectorActive && bad) parts.push(`${bad} sensor${bad === 1 ? "" : "s"} off`);
+      else if (e.asrActive) parts.push(`${Math.round(ev.repaired * 100)}% repaired`);
+      pill.textContent = parts.length ? `Cleanup: ${parts.join(", ")}` : (e.detectorActive ? "Cleanup: all clean" : "Cleanup off");
+      pill.title = `${e.asrActive ? "Artifact repair (ASR) on" : "Artifact repair (ASR) off"}; ${e.detectorActive ? (bad ? `AI detector left out ${bad} of ${ev.masked.length} sensors` : "AI detector: all sensors clean") : "AI detector off"}`;
+      pill.className = `pill ${bad > ev.masked.length / 2 ? "warn" : "ok"}`;
     }
     const row = $("cleanRow");
     if (!row) return;
@@ -1718,7 +1776,7 @@ class App {
 
   paintBaseline() {
     const e = this.engine, card = $("baseCard");
-    const show = !!e.C && !e.calibrated && !this.protocolActive && !this.demo;
+    const show = !!e.C && !e.calibrated && !this.protocolActive && !this.demo && $("welcome").hidden;
     card.hidden = !show;
     if (!show) return;
     const p = e.lastEvent ? e.lastEvent.calibProgress : 0;
@@ -1744,6 +1802,7 @@ class App {
       return;
     }
     if (this.protocolActive) return;
+    if (!$("welcome").hidden) this.showWelcome(false);
     this.demo = { on: true, t0: 0, prevSource: this.sourceKind, prevMode: this.sim.mode, prevCalib: this.engine.settings.calibSec, prevModel: this.modelId };
     // the simulator's tour is written in neuro-marker terms, so the tour decodes with the markers
     if (this.modelId !== "markers") void this.selectModel("markers");
@@ -1782,10 +1841,10 @@ class App {
   viewMethod(): HTMLElement {
     return h("section", { class: "view", tabindex: "0", "data-view": "method", hidden: true },
       h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "How Emotif works"),
-        h("p", {}, "Every stage runs live in this browser. Numbers update from the current signal."))),
+        h("p", {}, "From headset to 3-D world in seven steps. Every step runs live in this browser; the grey boxes show the current numbers."))),
       h("div", { class: "pipeline", id: "pipeline" }),
       h("div", { class: "cols evidence", id: "evidence" }),
-      h("section", { class: "panel" }, h("h3", {}, "Image credits"),
+      h("section", { class: "panel" }, h("h2", {}, "Image credits"),
         h("p", { class: "note" }, "Ground photographs (grass, rock, dirt, sand and their normal maps) and the Tropical Sunny Day sky: Babylon.js Assets, CC BY 4.0. Sky photographs Quarry 01, Blouberg Sunrise 2 and Moonless Golf: Poly Haven (Greg Zaal), CC0, as distributed with the three.js examples. Leaves and bark are drawn by Emotif. Details: app/assets/CREDITS.md.")));
   }
 
@@ -1806,14 +1865,14 @@ class App {
     const entry = this.models.find(m => m.id === this.modelId);
     const cov = e.C ? coverage(e.channels) : null;
     $("pipeline").replaceChildren(
-      stage("1", "Acquire", "Any headset: Muse, OpenBCI, Emotiv, Neurosity, Unicorn, BrainBit, or a lab cap.", e.C ? `${e.C} ch at ${+e.fs.toFixed(1)} Hz` : "no signal"),
-      stage("2", "Filter", "0.5 Hz high-pass removes drift; notches remove 50/60 Hz mains hum.", "causal, sample by sample"),
-      stage("3", "Repair", "Artifact Subspace Reconstruction finds bursts that don't look like the baseline and rebuilds them from the clean channels.", e.asrActive ? `${Math.round((ev?.repaired ?? 0) * 100)}% of last 10 s repaired` : e.calibrated ? "off" : "calibrating"),
-      stage("4", "Detect", "A neural network trained on 13,500 recordings (EEGdenoiseNet) labels each channel clean, eye or muscle, and holds out bad ones.", e.detectorActive && ev ? `${ev.masked.filter(Boolean).length} of ${e.C} held out` : e.calibrated ? "off" : "calibrating"),
-      stage("5", "Map", "Differential entropy in 5 bands, z-scored to the baseline, pooled into 17 fixed scalp regions so any headset fits one model.", cov ? `${cov.observed.length} / 17 regions covered` : "—"),
-      stage("6", "Decode (brain only)", "Blink size and jaw-muscle power are measured in every window; the brain-only decoder removes everything they explain, then reads valence and arousal. A Kalman filter smooths them.",
+      stage("1", "Record the brain signal", "Any headset: Muse, OpenBCI, Emotiv, Neurosity, Unicorn, BrainBit, or a lab cap.", e.C ? `${e.C} ch at ${+e.fs.toFixed(1)} Hz` : "no signal"),
+      stage("2", "Remove hum and drift", "0.5 Hz high-pass removes drift; notches remove 50/60 Hz mains hum.", "causal, sample by sample"),
+      stage("3", "Repair blinks and muscle bursts", "Artifact Subspace Reconstruction finds bursts that don't look like the baseline and rebuilds them from the clean channels.", e.asrActive ? `${Math.round((ev?.repaired ?? 0) * 100)}% of last 10 s repaired` : e.calibrated ? "off" : "calibrating"),
+      stage("4", "Flag noisy sensors", "A neural network trained on 13,500 recordings (EEGdenoiseNet) labels each channel clean, eye or muscle, and holds out bad ones.", e.detectorActive && ev ? `${ev.masked.filter(Boolean).length} of ${e.C} held out` : e.calibrated ? "off" : "calibrating"),
+      stage("5", "Map onto scalp regions", "Differential entropy in 5 bands, z-scored to the baseline, pooled into 17 fixed scalp regions so any headset fits one model.", cov ? `${cov.observed.length} / 17 regions covered` : "—"),
+      stage("6", "Read the mood (brain only)", "Blink size and jaw-muscle power are measured in every window; the brain-only decoder removes everything they explain, then reads valence and arousal. A Kalman filter smooths them.",
         e.last ? `${isBrainOnly(e.model) ? "face removed · " : ""}${entry?.name ?? "markers"} · V ${fmtSigned(e.last.v)} A ${fmtSigned(e.last.a)}` : "waiting"),
-      stage("7", "Respond", "The 3-D world mirrors, guides or (as a control) ignores the state; the robot arm can embody it.", `world: ${this.director.mode}`));
+      stage("7", "Change the world", "The 3-D world mirrors, guides or (as a control) ignores the state; the robot arm can embody it.", `world: ${this.director.mode}`));
   }
 
   renderEvidence() {
@@ -1835,7 +1894,7 @@ class App {
   async showReport(s: SessionMeta) {
     const box = $("report");
     box.hidden = false;
-    box.replaceChildren(h("h3", {}, `Report · ${s.id}`), h("p", { class: "note" }, "Loading…"));
+    box.replaceChildren(h("h2", {}, `Report · ${s.id}`), h("p", { class: "note" }, "Loading…"));
     try {
       const get = async (f: string) => { const r = await fetch(`/api/sessions/${encodeURIComponent(s.id)}/${f}`); if (!r.ok) throw new Error(`${f}: ${r.status}`); return r.text(); };
       const [aff, evs] = await Promise.all([get("affect.csv"), get("events.csv")]);
@@ -1874,7 +1933,7 @@ class App {
           : h("p", { class: "note" }, "No protocol blocks in this session."));
       requestAnimationFrame(() => drawTimeline(cv, hist, [], Math.max(10, end), end, blocks.map(b => ({ t0: b.t0, t1: b.t1, label: b.id }))));
       box.scrollIntoView({ behavior: "smooth", block: "start" });
-    } catch (e) { box.replaceChildren(h("h3", {}, "Report"), h("p", { class: "err" }, `Couldn't load this session: ${(e as Error).message}`)); }
+    } catch (e) { box.replaceChildren(h("h2", {}, "Report"), h("p", { class: "err" }, `Couldn't load this session: ${(e as Error).message}`)); }
   }
 
   // ---------------------------------------------------------------- frame loop
@@ -1917,7 +1976,7 @@ class App {
     if (this.view === "live" && !document.body.classList.contains("immersive")) {
       drawCircumplex($("circ") as HTMLCanvasElement, this.trail, this.sourceKind === "sim" ? this.sim.cur : null,
         this.director.mode !== "mirror" ? this.director.env : null, this.director.mode === "guide" ? this.director.target : null);
-      $("dirNote").textContent = { mirror: "Mirror: the world shows the decoded state.", guide: "Guide: the world leans toward the target, nudging the person there.", sham: "Sham: the world follows a random path that ignores the brain (control condition)." }[this.director.mode];
+      $("dirNote").textContent = { mirror: "Mirror me: the world shows your decoded mood.", guide: "Guide me: the world leans toward the target mood, nudging you there.", sham: "Random: the world follows a random path that ignores the brain (the sham control condition)." }[this.director.mode];
       if (ev && this.engine.C) {
         const vals = ev.zde ? ev.zde.map(z => (z ? z[this.bandView] : null)) : this.engine.channels.map(() => null);
         drawTopomap($("topo") as HTMLCanvasElement, this.engine.channels, vals, this.engine.channels.map((_, i) => status(i)));
@@ -1990,7 +2049,7 @@ function boot() {
   (window as unknown as { emotif: App }).emotif = app;
   app.init().catch(e => {
     console.error(e);
-    document.body.append(h("div", { class: "panel", style: "margin:24px" }, h("h3", {}, "Emotif couldn't start"), h("p", { class: "err" }, String((e as Error).message ?? e))));
+    document.body.append(h("div", { class: "panel", style: "margin:24px" }, h("h2", {}, "Emotif couldn't start"), h("p", { class: "err" }, String((e as Error).message ?? e))));
   });
 }
 // the script may be placed in <head>; wait for <body>

@@ -45,13 +45,13 @@ export function drawCircumplex(cv: HTMLCanvasElement, trail: { v: number; a: num
   g.beginPath(); g.arc(cx, cy, R * 0.25, 0, Math.PI * 2); g.stroke();
   g.setLineDash([]);
   g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
-  g.font = `${11 * dpr}px ${fonts().mono}`;
+  g.font = `500 ${13 * dpr}px ${fonts().sans}`;
   g.fillStyle = muted; g.textBaseline = "middle";
   g.textAlign = "center";
-  g.fillText("High arousal", cx, m * 0.45); g.fillText("Low arousal", cx, w - m * 0.45);
+  g.fillText("High energy", cx, m * 0.45); g.fillText("Low energy", cx, w - m * 0.45);
   g.save(); g.translate(m * 0.45, cy); g.rotate(-Math.PI / 2); g.fillText("Unpleasant", 0, 0); g.restore();
   g.save(); g.translate(w - m * 0.45, cy); g.rotate(Math.PI / 2); g.fillText("Pleasant", 0, 0); g.restore();
-  g.font = `${10.5 * dpr}px ${fonts().sans}`;
+  g.font = `700 ${13.5 * dpr}px ${fonts().sans}`;
   ([["Happy", 0.6, 0.6], ["Calm", 0.6, -0.6], ["Sad", -0.6, -0.6], ["Stressed", -0.6, 0.6]] as const).forEach(([t, v, a]) => {
     const [x, y] = P(v, a); g.fillStyle = affectCss(v, a); g.globalAlpha = 0.9; g.fillText(t, x, y); g.globalAlpha = 1;
   });
@@ -200,7 +200,7 @@ export function drawTimeline(cv: HTMLCanvasElement, hist: { t: number; v: number
     if (b.t1 < t0) continue;
     const x0 = Math.max(0, X(b.t0)), x1 = X(b.t1 || now);
     g.fillRect(x0, top, Math.max(1, x1 - x0), bottom - top);
-    g.fillStyle = token("--muted"); g.font = `${9.5 * dpr}px ${fonts().mono}`; g.textAlign = "left"; g.textBaseline = "top";
+    g.fillStyle = token("--muted"); g.font = `${11 * dpr}px ${fonts().mono}`; g.textAlign = "left"; g.textBaseline = "top";
     g.fillText(b.label, x0 + 3 * dpr, top + 2 * dpr);
     g.fillStyle = token("--surface-2");
   }
@@ -215,7 +215,7 @@ export function drawTimeline(cv: HTMLCanvasElement, hist: { t: number; v: number
   for (const p of vis) if (p.q < 0.6) { g.fillStyle = token("--warn"); g.globalAlpha = 0.12; g.fillRect(X(p.t), top, 2 * dpr, bottom - top); g.globalAlpha = 1; }
   series("v", token("--accent"));
   series("a", token("--ink-2"));
-  g.font = `${9.5 * dpr}px ${fonts().mono}`; g.textBaseline = "top";
+  g.font = `${11 * dpr}px ${fonts().mono}`; g.textBaseline = "top";
   for (const e of events) {
     if (e.t < t0) continue;
     const x = X(e.t);
@@ -262,7 +262,7 @@ export function drawCompare(cv: HTMLCanvasElement, hist: { t: number; brain: num
     g.fillStyle = token("--danger"); g.globalAlpha = 0.25 + 0.75 * j; g.fillRect(x, y0 + strip / 2, bw, (strip / 2) * j);
   }
   g.globalAlpha = 1;
-  g.font = `${9.5 * dpr}px ${fonts().mono}`; g.fillStyle = token("--muted"); g.textBaseline = "top"; g.textAlign = "left";
+  g.font = `${11 * dpr}px ${fonts().mono}`; g.fillStyle = token("--muted"); g.textBaseline = "top"; g.textAlign = "left";
   g.fillText(`−${Math.round(span)} s`, 4 * dpr, 1 * dpr);
   g.textAlign = "right"; g.fillText("now", w - 4 * dpr, 1 * dpr);
   g.textAlign = "left"; g.textBaseline = "middle";
