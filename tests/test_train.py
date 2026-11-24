@@ -434,9 +434,83 @@ def synthetic_insight_check(d, sessions_root):
           "null (--effect 0) " + ", ".join(f"{x['bacc']:.2f}" for x in nul.values()) + "; real sessions and real model folders refused")
 
 
+def closed_loop_check():
+    """research/closed_loop_audit.py on synthetic people whose valence label lives in the face (pleasant recordings
+    carry extra blinks): the focus/relax control port's dwell, hysteresis and hold; the world loop's slew limit and weather
+    dwell; the face-share measure on a known answer; and the causal test, injected blinks move the standard
+    decoder's shown valence and world more than the brain-only decoder's."""
+    sys.path.insert(0, os.path.join(ROOT, "research"))
+    import closed_loop_audit as CL
+    from emotif import artifact as A
+    # focus/relax control (interact.ts AlphaControl): 0.75 s beyond the threshold is not enough, >= 1 s is; a hold freezes it
+    z = np.full((3, 40), -3.0)
+    z[0, 14:] = 0.0                                      # comes back to baseline: hysteresis ends the command
+    held = np.zeros((3, 40), bool)
+    held[2, 4:] = True
+    L, C = CL.alpha_control(z, held)
+    first = int(np.argmax(C[1] == 1))                     # alpha below baseline = focus
+    assert C[1, first] == 1 and L[1, first] > 0.7 and np.all(C[1, :first] == 0)
+    assert np.all(C[1, first:] == 1) and np.all(C[2] == 0) and np.all(L[2, 4:] == L[2, 3]), (C[2], L[2])
+    on = np.flatnonzero(C[0] == 1)
+    assert len(on) and np.all(C[0, on[-1] + 1:] == 0) and L[0, on[-1] + 1] < 0.35
+    k = 1 - np.exp(-0.25 / 1.5)
+    t_cross = int(np.argmax(3.0 * (1 - (1 - k) ** np.arange(1, 41)) > 0.7))   # window where |level| first > 0.7
+    assert first == t_cross + 4, (first, t_cross)        # 4 more windows = 1 s dwell
+    # world loop: worst-case input moves the shown state at most 0.25 per s (director), weather waits >= 3 s
+    dec = np.where(np.arange(800) % 160 < 80, 1.0, -1.0)[None]
+    v, a, w = CL.world(dec, dec)
+    assert np.abs(np.diff(v[0])).max() <= 0.25 * 0.25 + 1e-12
+    changes = np.flatnonzero(np.diff(w[0]) != 0)
+    assert len(changes) >= 4 and (changes[0] + 1) * 0.25 >= 3.0 and np.diff(changes).min() * 0.25 >= 3.0, changes
+    # face share known answer: a parameter built from the face is explained, an unrelated one is not
+    rng = np.random.default_rng(5)
+    faces = [rng.normal(0, 1, (300, 6)) for _ in range(12)]
+    Zs = [CL.face_design(CL.face_history(f)) for f in faces]
+    Ys = [np.column_stack([CL.face_history(f)[:, 0] * 2 + 0.1 * rng.normal(0, 1, 300), rng.normal(0, 1, 300)]) for f in faces]
+    r2, _, _, _ = CL.cv_r2(Zs, Ys, np.repeat(np.arange(6), 2))
+    assert r2[0] > 0.8 and r2[1] < 0.02, r2
+    # synthetic people: 4 recordings of 60 s, no label in the brain; pleasant ones blink every ~2 s, unpleasant every
+    # ~5 s, with varied size (label in the face)
+    det = A.load()
+    chans, fs = list(datasets.EMOTIV_CHANNELS), 128.0
+    people = []
+    for s in range(6):
+        trials = []
+        for g, (val, aro) in datasets.GAMEEMO_VA.items():
+            x = synth(chans, fs, 60, 0, 0, rng)
+            tt = np.arange(x.shape[1]) / fs
+            g_ = np.array([CL.BLINK_GAIN.get(M.canonical(c), 0.05) for c in chans])
+            gap = 2.0 if val > 0 else 5.0
+            b = rng.uniform(0, gap)
+            while b < 60:
+                x += rng.uniform(80, 220) * g_[:, None] * np.exp(-((tt - b) ** 2) / (2 * rng.uniform(0.06, 0.1) ** 2))[None]
+                b += gap * rng.uniform(0.6, 1.4)
+            trials.append(datasets.Trial(f"p{s}", f"p{s}G{g}", x, fs, chans, {"valence": val, "arousal": aro}))
+        people.append(CL.Person(trials, det))
+    test = people[0]
+    fm = {t: CL.FoldModels(CL.stack_train(people, exclude="p0"), t) for t in CL.TARGETS}
+    rep = CL.replay_person(test, fm, ["clean", "blink150"], seed=0)
+    ids = ["p0"]
+    for gate in (CL.REJECT_UV, 0.0):
+        sc = CL.simulate(rep["clean"][gate])
+        si = CL.simulate(rep["blink150"][gate])
+        m = CL.injection_metrics(sc, si, ["p0"] * 4, ids)
+        std, br = m["standard_clean"], m["brain"]
+        assert std["shown_valence"][0] > 2 * br["shown_valence"][0] + 0.02, (gate, std["shown_valence"], br["shown_valence"])
+        assert std["saturation"][0] > br["saturation"][0], (gate, std["saturation"], br["saturation"])
+        assert std["shown_valence_signed"][0] > 0          # extra blinks look "pleasant" to the face-reading decoder
+    # the clean replay is identical whatever the condition seed (injection is the only difference)
+    rep2 = CL.replay_person(test, fm, ["clean"], seed=7)
+    assert np.array_equal(rep2["clean"][CL.REJECT_UV][0]["brain/valence"], rep["clean"][CL.REJECT_UV][0]["brain/valence"])
+    print(f"closed-loop audit OK: focus/relax dwell / hysteresis / hold, world slew <= 0.25/s and weather dwell >= 3 s, "
+          f"face share known answer {r2[0]:.2f} / {r2[1]:.2f}; injected blinks move shown valence "
+          f"{std['shown_valence'][0]:.3f} (standard) vs {br['shown_valence'][0]:.3f} (brain-only, decoded {br['decoded'][0]:.0%})")
+
+
 def main():
     warnings.filterwarnings("ignore")
     brain_known_answer()
+    closed_loop_check()
     rng = np.random.default_rng(42)
     with tempfile.TemporaryDirectory() as d:
         paths = {"seed": make_seed(d, rng), "deap": make_deap(d, rng), "dreamer": make_dreamer(d, rng),

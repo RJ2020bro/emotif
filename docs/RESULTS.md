@@ -132,6 +132,59 @@ Same windows and features as 3c–3d, evaluated the way many papers do (windows 
 - Logistic regression shows the same pattern at lower levels (stress: random 0.64, scrambled 0.57, new people 0.53, face only on new people 0.62).
 - Tool: the same checks as a package, `facecheck/` (`facecheck audit data.npz`), with known-answer tests.
 
+## 3f. Closed-loop audit: what the face does to the world (`research/closed_loop_audit.py` → `results/closed_loop/`, `fig_closed_loop.png`)
+Sections 3–3e audit the classifier. Here each held-out person's real recording is replayed through the app's whole loop, ported from `app/src` and checked against the TypeScript (focus/relax control, `slewToward`, director, `moodWeather`: identical to ≤ 1e-15 on random input): 2 s windows every 0.25 s → 200 µV amplitude gate after ASR (app default) → decoder → Kalman smoothing (q 0.002) → director (0.25 per s) → world slew (τ 1.2 s, 0.5 per s, 60 frames/s) → cloud, storm, fog, saturation and the displayed weather (3 s dwell, fade). The focus/relax control (AlphaControl: posterior alpha vs baseline, threshold 0.7, dwell 1 s, τ 1.5 s, hysteresis, hold) runs on the same windows. GAMEEMO: LOSO models fitted on the other 27 people; the pipeline reproduces section 3c exactly (training rows identical to the 3c cache; balanced accuracy 0.591 / 0.582 / 0.569 valence, 0.618 / 0.605 / 0.564 arousal; face share 0.52 / 0.29 / 0.06 and 0.52 / 0.36 / 0.09). Insight stress data: the GAMEEMO models at AF3, AF4, T7, T8, fitted on all 28 GAMEEMO people; the control reads Pz. Normalization (z-scores, detector baseline, face centre, ASR) comes from each person's clean session and is held fixed when artifacts are added. 554 min of GAMEEMO and 97 min of Insight data replayed; seed 0.
+
+**1. Face share of the world (GAMEEMO).** Out-of-person R² of each signal from an independent face measure (audit face indices per electrode, averaged causally over the last 2, 8 and 30 s, with squares; ridge fitted on the other people). p: 200 permutations that give each recording the face series of another person's recording. Per-person comparison: Wilcoxon, n = 28.
+
+| Signal | Standard, filter only | Standard, cleaned | Brain-only | Cleaned > brain-only |
+|---|---|---|---|---|
+| Decoder output per window, valence / arousal | 0.33 / 0.35 | 0.20 / 0.26 | < 0 (−0.16 / −0.08) | |
+| Valence the app shows | 0.42 (p 0.005) | 0.29 (p 0.005) | < 0 (p 0.93) | 28/28 people, p 7e-9 |
+| Arousal the app shows | 0.44 (p 0.005) | 0.34 (p 0.005) | < 0 (p 0.46) | 26/28, p 3e-7 |
+| Cloud cover / storm / fog | 0.29 / 0.26 / 0.29 | 0.22 / 0.17 / 0.22 | < 0 (p ≥ 0.23) | cloud 24/28, p 7e-5 |
+| Colour saturation | 0.43 | 0.30 | < 0 (p 0.95) | 28/28, p 7e-9 |
+| Displayed weather (5 kinds) | 0.06 | 0.03 | < 0 (−0.07) | 24/28, p 3e-5 |
+| Focus/relax control level | 0.24 (no face hold) | | 0.24 (with face hold) | 12/28, p 0.10 |
+
+- Smoothing does not wash the face out of the world; it concentrates it. The standard decoders' face share is *higher* in what the world shows (0.29–0.44) than per window (0.20–0.35), because the face differs between whole games and the loop integrates it. With the brain-only decoder no world parameter is predictable from the face history in new people (all R² < 0, none above the permutation null).
+- The weather is sticky (3 s dwell, quadrant thresholds), so little of its variance is explained by anything (≤ 0.06). For the brain-only decoder the permutation p is 0.005 although R² is −0.07: swapping faces between recordings makes the regression worse still (null mean −0.15); it is not evidence that the face predicts its weather.
+- **Unexpected:** the focus/relax control's level is 24 % face-explained (p 0.005), with or without the face hold. The hold is set for extreme face activity (z > 8.7 here) and fires on < 1 % of clean windows, so it does not remove ordinary co-variation between face indices and posterior alpha. Posterior alpha may genuinely co-vary with eye activity (alpha rises when the eyes are still or closed and drops with visual engagement), so this is not necessarily contamination, but the control is not face-independent in the way the affect decoder is.
+
+**2. Counterfactual artifact injection.** Into real recordings, 30 s with / 30 s without, alternating: blinks (Gaussian, σ 60–100 ms, every 2.5 ± 0.5 s, peak 100/150/200 µV at AF3/AF4, scaled over the scalp), jaw clenches (20–45 Hz noise, 1.5 s on / 1 s off, RMS 10/20/40 µV at T7/T8; and 13–45 Hz at 20 µV), and genuine brain changes (8–13 Hz component of every channel ×2 or ×0.5). Compared with the same recording replayed without injection. GAMEEMO, app settings, mean over people; shown state = mean |change| of displayed valence and arousal; weather = % of injected time the displayed weather differs.
+
+| Injection | Shown state moved: filter only / cleaned / brain-only | Weather differs | Windows decoded | Cleaned vs brain-only, valence (Wilcoxon) |
+|---|---|---|---|---|
+| Blinks 100 µV | 0.14 / 0.12 / 0.10 | 29 / 20 / 17 % | 66 % | p 0.025 |
+| Blinks 200 µV | 0.15 / 0.13 / 0.16 | 26 / 22 / 22 % | 45 % | p 0.13; arousal: brain-only moves *more* (0.21 vs 0.14, p 0.018) |
+| Jaw 10 µV | 0.27 / 0.19 / 0.13 | 55 / 35 / 22 % | 67 % | p 5e-4 |
+| Jaw 20 µV | 0.46 / 0.21 / 0.16 | 67 / 38 / 25 % | 56 % | p 1.5e-8 |
+| Jaw 40 µV | 0.40 / 0.22 / 0.17 | 54 / 36 / 25 % | 3 % | p 1.5e-8 |
+| Jaw 13–45 Hz, 20 µV | 0.47 / 0.21 / 0.16 | 67 / 41 / 25 % | 60 % | p 1.5e-8 |
+| **Alpha ×2 (genuine)** | 0.19 / 0.23 / 0.22 | 57 / 58 / 61 % | 66 % | brain-only moves the weather more, p 0.0015 |
+| **Alpha ×0.5 (genuine)** | 0.17 / 0.19 / 0.16 | 53 / 52 / 52 % | 70 % | |
+
+- Jaw clenches of 20 µV and more move the standard (filter-only) world about 3× more than the brain-only world, in all 28 people (cleaned > brain-only in 27/28); cleaning halves it and the brain-only decoder removes about another quarter. A genuine alpha change moves the brain-only world as much as the standard one (weather changes in 61 % of the time), so the brain-only decoder is not simply insensitive: per unit of world movement, jaw (20 µV) / alpha ×2 is 2.4 for the filter-only decoder, 0.9 cleaned, 0.7 brain-only.
+- Blinks: small effects for every decoder, because ASR and the 200 µV gate already act on them (at 200 µV only 45 % of injected windows are decoded, against 69 % of clean windows; the world holds). Brain-only is not better than the cleaned standard decoder against large blinks, and for 200 µV blinks its arousal moves more (overcorrection: the ridge subtraction extrapolates beyond the blink sizes it was fitted on while the hold, z > 8.7, rarely fires). Known-answer reproduction: in `tests/test_train.py` the same overcorrection appeared when synthetic training blinks were all one size.
+- The residual movement under jaw injection (0.16) is not zero: brain-only still lets about a third of the cleaned decoder's artifact-driven movement through.
+- Without the amplitude gate (`rejectUv` 0) all windows are decoded and the filter-only world moves up to 0.68 under 40 µV clenches (weather differs 75 %); cleaned 0.21, brain-only 0.18 (all in `closed_loop.json`, `no_gate`).
+- Insight stress data (transferred models; 17 people, short recordings): same ordering for clenches (jaw 20 µV: 0.19 / 0.11 / 0.10; weather 47 / 10 / 7 %), but cleaned vs brain-only differences are small and mostly not significant (n = 17; p 0.03–0.57). Genuine alpha ×2 moves the brain-only world more than the cleaned standard's valence (p 5e-4). Per-window face share replicates the ordering (valence 0.44 / 0.33 / 0.12, arousal 0.36 / 0.27 / 0.19); the out-of-person world regression does not generalize across these 17 short recordings (all R² < 0), so the world-level share is not measurable on this dataset.
+
+**3. False commands of the focus/relax control.** Commands per minute during injected epochs minus the same epochs replayed clean (GAMEEMO, app settings).
+
+| Injection | Added commands/min, with face hold / without | Time the control's state differs from clean | Held |
+|---|---|---|---|
+| Blinks 100 / 150 / 200 µV | −0.07 / −0.26 / −0.48 (same without hold) | 3 / 7 / 11 % | 34 / 45 / 56 % |
+| Jaw 10 / 20 / 40 µV | 0.00 / −0.13 / −1.06 | 5 / 12 / 21 % | 33 / 44 / 97 % |
+| Alpha ×2 (genuine relax) | +0.53 (relax 1.59/min vs 0.44 clean) | 70 % | 34 % |
+| Alpha ×0.5 (genuine focus) | +0.74 (focus 1.79/min vs 0.66 clean) | 73 % | 31 % |
+
+- Face artifacts did not create false commands: they removed commands, because the amplitude gate, the detector and ASR make the control hold or see no change in posterior alpha. The face hold added nothing measurable on top of the gate (identical rates; p ≥ 0.04 for one condition, ≥ 0.11 otherwise).
+- Genuine alpha changes were detected: the right command appeared in 95 % (×2, relax) and 96 % (×0.5, focus) of injected 30 s epochs, against 29–30 % of the same epochs without injection; 85 % with 150 µV blinks on top. Insight (Pz only): 72–74 %, 51 % with blinks (the gate holds 61–83 % of windows there); 99 % without the gate.
+- **Limitation found:** on clean recordings the control issues 1.2 commands per minute (Insight 1.3) and is in a command state 20 % (25 %) of the time without any instruction: natural alpha fluctuations cross the 0.7 threshold. These are false commands from the brain, not the face. Neither dataset has eyes-closed or instructed segments, so true and false commands can't be told apart on real data beyond the alpha-scaled controls.
+
+Limits: synthetic artifacts are idealized (fixed spatial gains, Gaussian blinks, band-limited noise; real EMG reaches below 20 Hz, tested only by the 13–45 Hz variant); normalization is frozen at the clean session (the app's default "auto" mode keeps updating it, which would partly absorb sustained artifacts); weather is simulated from the state machine, not rendered; temperature calibration of the shipped models is not applied (it changes only the Kalman weight); one seed.
+
 ## 4. Models (`train.py`, `research/benchmark.py` → `results/muse_mental/`)
 
 | Bird Muse, arousal, cleaned | Within-subject (held-out recording) | LOSO |
