@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { slewToward } from "./safety";
 import { forward, inverse, INIT, L2, T2, type Pose } from "./arm";
-import { CHUNK, Terrain, buildChunk, type ChunkGeometry, type ChunkMood } from "./terrain";
+import { CHUNK, Terrain, buildChunk, type ChunkGeometry, type ChunkMood, type Landmark } from "./terrain";
 import { DEFAULT_SPEC, validateSpec, type Weather, type WorldSpec } from "./worldspec";
 
 const PAL = { // [sky top, horizon, ground low, ground high, accent]
@@ -36,7 +36,8 @@ float h13(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43
 float h12(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(h12(i), h12(i + vec2(1.0, 0.0)), f.x), mix(h12(i + vec2(0.0, 1.0)), h12(i + vec2(1.0, 1.0)), f.x), f.y); }
-float fbm2(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * vn(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; } return s; }
+float fbm3(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 3; i++) { s += a * vn(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; } return s / 0.875; }
+float fbm4(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * vn(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; } return s / 0.9375; }
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 uniform float uNatural;
 // natural style: aerial perspective (fog brightens toward the sun) and less fog high up
@@ -93,20 +94,23 @@ vec3 naturalShade(vec3 n, float kind, out float alpha) {
   if (kind == 0.0) {
     // ground from photographs: grass, dry dirt patches, sand by the water, rock on slopes, snow on peaks;
     // the theme's palette (vColor) tints the grass so every world keeps its own colours
-    float m1 = fbm2(q * 0.045), m2 = vn(q * 0.6);
-    vec3 grass = tex2(tGrass, q, 0.16);
-    vec3 dirt = tex2(tDirt, q, 0.12);
-    vec3 sand = tex2(tSand, q, 0.14);
-    vec3 rock = tex2(tRock, vec2(q.x + q.y, vWorld.y), 0.11);
-    vec3 tint = vColor / max(lum(vColor), 0.02);
-    grass *= mix(vec3(1.0), clamp(tint * lum(grass) / max(lum(grass), 1e-3), 0.0, 2.0), 0.45);
-    vec3 nG = nrm2(tGrassN, q, 0.16), nR = nrm2(tRockN, vec2(q.x + q.y, vWorld.y), 0.11);
+    // only the layers that show at this point are sampled (most of the ground is grass alone)
+    float m1 = fbm3(q * 0.045), m2 = vn(q * 0.6);
     float slope = 1.0 - n.y;
     float wr = smoothstep(0.2, 0.36, slope + (m2 - 0.5) * 0.12);
     float wd = smoothstep(0.58, 0.78, m1 + 0.25 * (m2 - 0.5)) * (1.0 - wr);
     float ws = (1.0 - smoothstep(uWaterY + 0.4, uWaterY + 1.4, vWorld.y + (m2 - 0.5) * 0.6)) * (1.0 - wr);
-    base = mix(mix(mix(grass, dirt, wd), sand, ws), rock * vec3(0.95, 0.93, 0.9), wr);
-    vec3 tn = mix(nG, nR, wr);
+    vec3 grass = tex2(tGrass, q, 0.16);
+    vec3 tint = vColor / max(lum(vColor), 0.02);
+    base = grass * mix(vec3(1.0), clamp(tint * lum(grass) / max(lum(grass), 1e-3), 0.0, 2.0), 0.45);
+    vec3 tn = nrm2(tGrassN, q, 0.16);
+    if (wd > 0.003) base = mix(base, texture2D(tDirt, q * 0.12).rgb, wd);
+    if (ws > 0.003) base = mix(base, texture2D(tSand, q * 0.14).rgb, ws);
+    if (wr > 0.003) {
+      vec2 rq = vec2(q.x + q.y, vWorld.y);
+      base = mix(base, tex2(tRock, rq, 0.11) * vec3(0.95, 0.93, 0.9), wr);
+      tn = mix(tn, nrm2(tRockN, rq, 0.11), wr);
+    }
     n = normalize(n + vec3(tn.x, 0.0, tn.y) * mix(0.35, 0.8, wr));
     float snow = smoothstep(uSnow - 1.5, uSnow + 1.5, vWorld.y + (m1 - 0.5) * 4.0) * smoothstep(0.55, 0.25, slope);
     base = mix(base, vec3(0.82, 0.85, 0.9), snow);
@@ -191,6 +195,7 @@ varying vec3 vWorld;
 void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
 const WATER_FS = /* glsl */`
 uniform vec3 uWater, uSky, uSunDir, uSunColor, uAccent;
+uniform float uFoam;
 uniform float uWaterTime, uWave, uNeon;
 varying vec3 vWorld;
 ${GRADE}
@@ -212,6 +217,8 @@ void main() {
     float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
     float spec = pow(max(dot(r, uSunDir), 0.0), 220.0) * 3.0 + pow(max(dot(r, uSunDir), 0.0), 24.0) * 0.12;
     vec3 col = mix(uWater * 0.22, refl, fres) + uSunColor * spec;
+    float crest = smoothstep(0.62, 0.9, vn(p * 0.9 + vec2(t * 0.7, -t * 0.4)) * 0.6 + length(d) * 0.9);
+    col += vec3(0.85) * crest * uFoam * 0.35 * (1.0 - fres);      // whitecaps: stormy (aroused, unpleasant) seas
     col = mix(col, airColor(vWorld, uFogColor, uSunDir, uSunColor), airF(vWorld));
     gl_FragColor = vec4(aces(grade(col) * 1.05), 0.94);
     #include <colorspace_fragment>
@@ -255,7 +262,7 @@ vec3 naturalSky(vec3 d) {
   float extra = uSkyOn > 0.5 ? clamp((uCloud - 0.22) / 0.73, 0.0, 1.0) : uCloud;   // the photo has its own clouds
   if (h > 0.0 && extra > 0.001) {                 // clouds the brain adds: a layer of noise projected onto the sky
     vec2 uv = d.xz / (h + 0.18) * 0.55 + vec2(uCloudT, uCloudT * 0.37);
-    float c = fbm2(uv) * 0.75 + fbm2(uv * 2.7 + 4.2) * 0.25;
+    float c = fbm4(uv) * 0.85 + vn(uv * 5.4 + 4.2) * 0.15;
     float cov = clamp(extra, 0.0, 1.0);
     float m = smoothstep(1.0 - cov - 0.08, 1.0 - cov + 0.32, c) * smoothstep(0.0, 0.18, h);
     float thick = smoothstep(0.45, 0.95, c);
@@ -349,6 +356,12 @@ const RADIUS = 3;         // chunks loaded around the explorer in each direction
 const NEAR = 1;           // chunks within this ring get full detail (grass, fine crowns); the rest lod 1
 const MAX_JOBS = 4;       // chunk jobs in flight to the worker
 const NP = 1600, BOX_W = 70, BOX_H = 34;
+const NB = 22;            // seabirds (most when the decoded state is pleasant)
+const DISCOVER_R = 40;    // how close the explorer comes to a landmark to discover it
+const MAST = 3.6;         // ship: water line to the lantern at the masthead
+
+/** A landmark found on this voyage (the logbook). */
+export type Discovery = { name: string; kind: Landmark["kind"]; x: number; z: number; t: number; v: number; a: number };
 
 export class World {
   ok = false;
@@ -398,7 +411,7 @@ export class World {
     uWater: { value: new THREE.Color() }, uSky: { value: new THREE.Color() },
     uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uNight: { value: 0 },
     uNatural: { value: 1 }, uSnow: { value: 1e4 }, uCloud: { value: 0.3 }, uCloudT: { value: 0 }, uStorm: { value: 0 },
-    uSkyRot: { value: 0 }, uSkyOn: { value: 0 }, uWaterY: { value: 0 },
+    uSkyRot: { value: 0 }, uSkyOn: { value: 0 }, uWaterY: { value: 0 }, uFoam: { value: 0 },
     tGrass: { value: blankTexture() }, tGrassN: { value: flatNormal() }, tRock: { value: blankTexture() }, tRockN: { value: flatNormal() },
     tDirt: { value: blankTexture() }, tSand: { value: blankTexture() }, tBark: { value: blankTexture() }, tLeaves: { value: blankTexture() },
     tSky: { value: blankTexture() },
@@ -427,6 +440,28 @@ export class World {
   get placedCount(): number { return this.props.filter(p => p.state === "placed").length; }
   get carrying(): boolean { return !!this.carried; }
   get aiming(): boolean { return !!this.aim; }
+  // voyage: in sea worlds the explorer is a spirit ship whose lantern is the glowing orb; it sails to landmarks
+  private ship!: THREE.Group;
+  private sail!: THREE.Mesh;
+  private shipMode = false;
+  private hemi!: THREE.HemisphereLight;
+  private sunLight!: THREE.DirectionalLight;
+  private birds!: THREE.InstancedMesh;
+  private found = new Map<string, Discovery>();
+  private log: Discovery[] = [];
+  private goal: Landmark | null = null;
+  private goalSince = 0;
+  private skip = new Set<string>();
+  private labels = new Map<string, THREE.Sprite>();
+  private toast: HTMLDivElement | null = null;
+  private toastTimer = 0;
+  private stuck = 0;
+  onDiscover: ((d: Discovery, total: number) => void) | null = null;
+  /** Landmarks discovered in this world, in order. */
+  get discoveries(): Discovery[] { return this.log.slice(); }
+  /** The landmark the explorer is heading for, if any. */
+  get goalName(): string | null { return this.goal?.name ?? null; }
+  get sailing(): boolean { return this.shipMode; }
   private beacons!: THREE.InstancedMesh;
   private beaconCount = 0;
   private readonly beaconMax = 1800;
@@ -463,7 +498,7 @@ export class World {
     } catch {
       return false;
     }
-    this.maxPR = Math.min(window.devicePixelRatio || 1, 1.5);   // beyond 1.5 the cost grows faster than the gain
+    this.maxPR = Math.min(window.devicePixelRatio || 1, 1.25);   // beyond this the cost grows faster than the gain
     this.pr = this.maxPR;
     this.renderer.setPixelRatio(this.pr);
     this.startWorker();
@@ -599,6 +634,17 @@ export class World {
     this.halo.scale.set(5, 5, 1);
     this.orb.add(this.halo);
     this.scene.add(this.orb);
+    this.buildShip();
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+    this.sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    this.scene.add(this.hemi, this.sunLight, this.sunLight.target);
+    const wing = new THREE.BufferGeometry();
+    wing.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0.3, 0, 0, -0.35, 0, 0, -0.1, 0.05, 1.25]), 3));
+    this.birds = new THREE.InstancedMesh(wing, new THREE.MeshBasicMaterial({ color: 0x2b3038, side: THREE.DoubleSide }), NB * 2);
+    this.birds.frustumCulled = false;
+    this.birds.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.birds.count = 0;
+    this.scene.add(this.birds);
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.07, 8, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false }));
     this.ring.rotation.x = Math.PI / 2;
     this.ring.visible = false;
@@ -623,6 +669,144 @@ export class World {
     this.points.frustumCulled = false;
     this.scene.add(this.points);
     this.scene.fog = new THREE.FogExp2(0xffffff, 0.02);
+  }
+
+  /** The spirit ship: a pointed hull, a mast and a billowing sail; the explorer's light is its masthead lantern. */
+  private buildShip() {
+    const g = new THREE.Group();
+    const sh = new THREE.Shape();
+    sh.moveTo(-2.5, -0.95); sh.lineTo(1.1, -1.1); sh.quadraticCurveTo(2.6, -0.95, 3.4, 0); sh.quadraticCurveTo(2.6, 0.95, 1.1, 1.1);
+    sh.lineTo(-2.5, 0.95); sh.quadraticCurveTo(-2.95, 0, -2.5, -0.95);
+    const hullG = new THREE.ExtrudeGeometry(sh, { depth: 0.9, bevelEnabled: true, bevelThickness: 0.35, bevelSize: 0.3, bevelSegments: 3, curveSegments: 10 });
+    hullG.rotateX(-Math.PI / 2);
+    hullG.translate(0, -0.75, 0);
+    const wood = new THREE.MeshLambertMaterial({ color: 0x7a5434, emissive: 0x1e140c });
+    const hull = new THREE.Mesh(hullG, wood);
+    const deckG = new THREE.ShapeGeometry(sh, 10);
+    deckG.rotateX(-Math.PI / 2);
+    deckG.translate(0, 0.17, 0);
+    const deck = new THREE.Mesh(deckG, new THREE.MeshLambertMaterial({ color: 0xb08a5c }));
+    deck.scale.set(0.92, 1, 0.88);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, MAST + 0.4, 8), wood);
+    mast.position.set(0.3, MAST / 2, 0);
+    const spar = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 6), wood);
+    spar.rotation.x = Math.PI / 2;
+    spar.position.set(0.38, MAST - 0.55, 0);
+    const sg = new THREE.PlaneGeometry(2.9, 2.5, 8, 6);
+    const sp = sg.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < sp.count; i++) { const u = sp.getX(i) / 1.45, v = sp.getY(i) / 1.25; sp.setZ(i, 0.55 * (1 - u * u) * (1 - 0.5 * v * v)); }
+    sg.computeVertexNormals();
+    sg.rotateY(Math.PI / 2);
+    this.sail = new THREE.Mesh(sg, new THREE.MeshLambertMaterial({ color: 0xf3ead6, emissive: 0x3d3a33, side: THREE.DoubleSide }));
+    this.sail.position.set(0.45, MAST - 1.85, 0);
+    const bow = new THREE.Mesh(new THREE.ConeGeometry(0.06, 1.6, 6), wood);
+    bow.rotation.z = -Math.PI / 2 - 0.35;
+    bow.position.set(3.6, 0.55, 0);
+    g.add(hull, deck, mast, spar, this.sail, bow);
+    g.visible = false;
+    this.ship = g;
+    this.scene.add(g);
+  }
+
+  /** Discover landmarks the explorer comes close to; choose the next one to head for. */
+  private updateVoyage(dt: number) {
+    const P = this.pos, T = this.terrain;
+    if (this.specV.landmarks <= 0) { this.goal = null; return; }
+    for (const L of T.landmarksNear(P.x, P.z, DISCOVER_R)) {
+      if (this.found.has(L.key)) continue;
+      const d: Discovery = { name: L.name, kind: L.kind, x: L.x, z: L.z, t: this.time, v: this.cur.v, a: this.cur.a };
+      this.found.set(L.key, d);
+      this.log.push(d);
+      this.showToast(L.name, this.log.length);
+      this.addLabel(L);
+      this.onDiscover?.(d, this.log.length);
+      if (this.goal?.key === L.key) this.goal = null;
+    }
+    if (this.goal && (this.found.has(this.goal.key) || this.time - this.goalSince > 50)) {   // reached, or out of reach
+      if (!this.found.has(this.goal.key)) this.skip.add(this.goal.key);
+      this.goal = null;
+    }
+    if (!this.goal) {
+      let best: Landmark | null = null, bd = 1e9;
+      for (const L of T.landmarksNear(P.x, P.z, 300)) {
+        if (this.found.has(L.key) || this.skip.has(L.key)) continue;
+        const d = Math.hypot(L.x - P.x, L.z - P.z);
+        if (d < bd) { bd = d; best = L; }
+      }
+      if (best) { this.goal = best; this.goalSince = this.time; }
+    }
+    // labels: names float over discovered landmarks nearby
+    for (const [k, sp] of this.labels) {
+      const d = Math.hypot(sp.position.x - P.x, sp.position.z - P.z);
+      if (d > 260) { this.scene.remove(sp); (sp.material as THREE.SpriteMaterial).map?.dispose(); sp.material.dispose(); this.labels.delete(k); continue; }
+      (sp.material as THREE.SpriteMaterial).opacity = clamp(1.4 - d / 140, 0, 0.95);
+    }
+    void dt;
+  }
+
+  private addLabel(L: Landmark) {
+    if (this.labels.has(L.key) || typeof document === "undefined") return;
+    const c = document.createElement("canvas");
+    c.width = 512; c.height = 96;
+    const g = c.getContext("2d");
+    if (!g) return;
+    g.font = "600 44px Georgia, 'Times New Roman', serif";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.shadowColor = "rgba(0,0,0,0.85)"; g.shadowBlur = 10;
+    g.fillStyle = "#fff4d8";
+    g.fillText(L.name, 256, 48);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
+    sp.scale.set(24, 4.5, 1);
+    sp.position.set(L.x, L.y + 22 * L.size, L.z);
+    this.scene.add(sp);
+    this.labels.set(L.key, sp);
+  }
+
+  private showToast(name: string, n: number) {
+    if (!this.toast) return;
+    this.toast.textContent = "";
+    const a = document.createElement("div");
+    a.textContent = "Discovered";
+    a.style.cssText = "font:600 11px system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#ffd58a";
+    const b = document.createElement("div");
+    b.textContent = name;
+    b.style.cssText = "font:600 20px Georgia,'Times New Roman',serif;margin-top:2px";
+    const c = document.createElement("div");
+    c.textContent = `${n} landmark${n === 1 ? "" : "s"} in the logbook`;
+    c.style.cssText = "font:12px system-ui,sans-serif;opacity:.85;margin-top:2px";
+    this.toast.append(a, b, c);
+    this.toast.style.opacity = "1";
+    this.toast.style.transform = "translate(-50%, 0)";
+    this.toastTimer = 5;
+  }
+
+  /** Seabirds circle the explorer: a flock when the state is pleasant, a few when it is not, almost none at night. */
+  private updateBirds(va: number) {
+    const night = this.specV.time === "night" || this.specV.style === "neon";
+    const n = Math.round(NB * clamp(0.15 + 0.85 * va, 0, 1) * (night ? 0.15 : 1) * (this.reducedMotion ? 0.5 : 1));
+    this.birds.count = n * 2;
+    if (!n) return;
+    const T = this.terrain, P = this.pos, m = new THREE.Matrix4(), r = new THREE.Matrix4(), f = new THREE.Matrix4(), sc = new THREE.Matrix4();
+    const base = Math.max(T.waterY, T.surface(P.x, P.z));
+    for (let i = 0; i < n; i++) {
+      const w = 0.18 + 0.05 * (i % 4), ph = i * 2.399, R = 12 + (i % 5) * 5, t = this.time;
+      const a = t * w * (i % 2 ? 1 : -1) + ph;
+      const x = P.x + Math.cos(a) * R + Math.sin(t * 0.07 + i) * 6, z = P.z + Math.sin(a) * R;
+      const y = base + 14 + (i % 3) * 4 + Math.sin(t * 0.5 + ph) * 1.5;
+      const dir = a + (i % 2 ? Math.PI / 2 : -Math.PI / 2);
+      const flap = Math.sin(t * (7 + (i % 3)) + ph) * 0.55;
+      for (const side of [1, -1]) {
+        m.makeTranslation(x, y, z);
+        r.makeRotationY(-dir);
+        f.makeRotationX(flap);
+        sc.makeScale(1.3, 1, side * 1.3);
+        m.multiply(r).multiply(sc).multiply(f);
+        this.birds.setMatrixAt(i * 2 + (side > 0 ? 0 : 1), m);
+      }
+    }
+    this.birds.instanceMatrix.needsUpdate = true;
   }
 
   private startWorker() {
@@ -658,9 +842,15 @@ export class World {
     if (this.ring) this.clearProps();
     this.water.position.y = this.terrain.waterY;
     this.U.uWaterY.value = this.terrain.waterY;
-    const sp = this.terrain.spawn(this.pos.x, this.pos.z);
+    // voyage state belongs to one world
+    for (const sp of this.labels.values()) { this.scene.remove(sp); (sp.material as THREE.SpriteMaterial).map?.dispose(); sp.material.dispose(); }
+    this.labels.clear(); this.found.clear(); this.log = []; this.skip.clear(); this.goal = null;
+    const sea = this.specV.terrain.islands && this.specV.terrain.water >= 0.45 ? this.terrain.spawnSea(this.pos.x, this.pos.z) : null;
+    this.shipMode = !!sea;
+    if (this.ship) this.ship.visible = this.shipMode;
+    const sp = sea ?? this.terrain.spawn(this.pos.x, this.pos.z);
     const old = this.pos.clone();
-    this.pos.set(sp.x, this.terrain.surface(sp.x, sp.z) + 4, sp.z);
+    this.pos.set(sp.x, this.terrain.surface(sp.x, sp.z) + (this.shipMode ? MAST : 4), sp.z);
     if (this.controls) {
       const off = this.camera.position.clone().sub(this.controls.target);
       // natural: a low, grounded view that shows the horizon and sky
@@ -777,12 +967,36 @@ export class World {
         if (ahead(this.heading) <= T.waterY + 0.01) this.heading += (ahead(this.heading + 0.6) >= ahead(this.heading - 0.6) ? 1 : -1) * 0.9 * dt;
       }
     }
+    if (this.explore && this.goal && !this.keys.size) {   // set a course for the next landmark
+      const want = Math.atan2(this.goal.z - this.pos.z, this.goal.x - this.pos.x);
+      const d = Math.atan2(Math.sin(want - this.heading), Math.cos(want - this.heading));
+      this.heading += d * Math.min(1, dt * (this.shipMode ? 0.35 : 0.2));
+    }
+    const wet = (a: number, r: number) => T.surface(this.pos.x + Math.cos(a) * r, this.pos.z + Math.sin(a) * r) <= T.waterY + 0.05;
+    if (this.shipMode && this.explore) {               // a ship keeps to the sea: turn toward open water before the shore
+      if (!wet(this.heading, 8) || !wet(this.heading, 15)) {
+        let side = 0;
+        for (const s of [0.5, 1, 1.6]) { side += (wet(this.heading + s, 12) ? 1 : 0) - (wet(this.heading - s, 12) ? 1 : 0); }
+        this.heading += (side >= 0 ? 1 : -1) * 1.3 * dt;
+      }
+    }
     if (this.keys.has("f")) speed = Math.max(speed, 6) * 1.8;
     if (this.keys.has("b")) speed = -4;
     this.heading -= turn * 1.4 * dt;
-    this.pos.x += Math.cos(this.heading) * speed * dt;
-    this.pos.z += Math.sin(this.heading) * speed * dt;
-    const alt = T.surface(this.pos.x, this.pos.z) + 3.5 + 2.5 * va * m;
+    const nx = this.pos.x + Math.cos(this.heading) * speed * dt, nz = this.pos.z + Math.sin(this.heading) * speed * dt;
+    if (this.shipMode && T.surface(nx, nz) > T.waterY + 0.05) {   // aground: stop and come about
+      this.stuck += dt;
+      this.heading += 1.2 * dt;
+    } else {
+      this.stuck = 0;
+      this.pos.x = nx; this.pos.z = nz;
+    }
+    if (this.shipMode && this.stuck > 6) {              // boxed into a cove: back out to open sea
+      const sea = T.spawnSea(this.pos.x, this.pos.z);
+      if (sea) { this.pos.x = sea.x; this.pos.z = sea.z; }
+      this.stuck = 0;
+    }
+    const alt = this.shipMode ? T.waterY + MAST : T.surface(this.pos.x, this.pos.z) + 3.5 + 2.5 * va * m;
     this.pos.y += (alt - this.pos.y) * Math.min(1, dt * 2);
   }
 
@@ -823,7 +1037,9 @@ export class World {
     U.uAmbSky.value.copy(top).lerp(hor, 0.5).multiplyScalar(tod.amb * 1.2);
     U.uAmbGround.value.set(P.low).multiplyScalar(tod.amb * 0.5);
     U.uAccent.value.set(P.accent).lerp(aAcc, m * 0.25);
-    U.uWater.value.set(P.water);
+    // the sea follows the state: grey and rough when unpleasant and aroused, clear turquoise when pleasant
+    U.uWater.value.set(P.water).lerp(new THREE.Color("#46545c"), clamp(m * neg * (0.45 + 0.55 * ar), 0, 0.8)).lerp(new THREE.Color("#22c7c4"), clamp(0.35 * m * pos, 0, 0.35));
+    U.uFoam.value = clamp(m * neg * ar * 2 + (this.brainState === "anger" || this.brainState === "stress" ? 0.4 * m : 0), 0, 1);
     U.uNight.value = neon ? 1 : tod.night;
     U.uGlow.value = clamp(tod.glow + 0.3 * m * pos, 0, 1);
     U.uBloom.value = clamp(1 + 0.5 * m * v, 0.4, 1.5);
@@ -833,7 +1049,7 @@ export class World {
     U.uTint.value.set((1 + 0.06 * warm) * (1 - 0.1 * cool), (1) * (1 - 0.04 * cool), (1 - 0.1 * warm) * (1 + 0.08 * cool));
     U.uFogDensity.value = (1.15 / (this.radius * CHUNK)) * (1 + 0.9 * m * neg) * (spec.style === "natural" ? 0.5 : 1);
     U.uSway.value = (0.25 + 1.6 * ar * m) * motion;
-    U.uWave.value = 0.3 + 0.9 * ar;
+    U.uWave.value = 0.3 + 0.9 * ar + 0.5 * U.uFoam.value;
     // sky: cloud cover follows unpleasantness, storms need unpleasant + aroused; clouds move with arousal
     const bs = this.brainState;
     U.uCloud.value = clamp(0.22 + 0.55 * m * neg + 0.12 * m * ar * neg + (bs === "low_mood" || bs === "anger" ? 0.3 * m : 0), 0, 0.95);
@@ -851,6 +1067,12 @@ export class World {
     (this.scene.fog as THREE.FogExp2).color.copy(g);
     (this.scene.fog as THREE.FogExp2).density = U.uFogDensity.value;
 
+    this.hemi.color.copy(U.uAmbSky.value).multiplyScalar(1.6);
+    this.hemi.groundColor.copy(U.uAmbGround.value).multiplyScalar(1.6);
+    this.sunLight.color.copy(U.uSunColor.value);
+    this.sunLight.position.copy(this.pos).addScaledVector(U.uSunDir.value, 50);
+    this.sunLight.target.position.copy(this.pos);
+    this.updateVoyage(dt);
     this.moveExplorer(dt, motion, ar, va);
     const prev = this.controls.target.clone();
     this.controls.target.copy(this.pos);
@@ -875,7 +1097,24 @@ export class World {
     (this.orb.material as THREE.MeshBasicMaterial).color.copy(U.uAccent.value).lerp(new THREE.Color(0xffffff), 0.35);
     (this.halo.material as THREE.SpriteMaterial).color.copy(U.uAccent.value);
     this.orb.position.copy(this.pos);
-    this.orb.position.y += Math.sin(this.time * 1.4) * 0.25;
+    if (this.shipMode) {   // the ship rides the waves; the orb is its masthead lantern
+      const w = U.uWave.value * motion, t = this.time;
+      const roll = Math.sin(t * 1.1) * 0.05 * w, pitch = Math.sin(t * 0.8 + 1) * 0.04 * w, bob = Math.sin(t * 1.3) * 0.12 * w;
+      this.ship.position.set(this.pos.x, this.terrain.waterY + bob, this.pos.z);
+      this.ship.rotation.set(roll, -this.heading, pitch, "YXZ");
+      this.ship.updateMatrixWorld();
+      this.orb.position.set(0.3, MAST + 0.35, 0).applyMatrix4(this.ship.matrixWorld);
+      this.orb.scale.setScalar(0.55);
+      (this.sail.material as THREE.MeshLambertMaterial).color.set("#f3ead6").lerp(U.uAccent.value, 0.18);
+    } else {
+      this.orb.scale.setScalar(1);
+      this.orb.position.y += Math.sin(this.time * 1.4) * 0.25;
+    }
+    this.updateBirds(va);
+    if (this.toast && this.toastTimer > 0) {
+      this.toastTimer -= dt;
+      if (this.toastTimer <= 0) { this.toast.style.opacity = "0"; this.toast.style.transform = "translate(-50%, -8px)"; }
+    }
 
     this.updateWeather(dt, motion, v, a);
     this.updateProps(dt, motion);
@@ -951,7 +1190,7 @@ export class World {
       for (let k = 0; k < 6; k++) {
         const a = this.heading + (((seed >>> (k * 3)) & 7) - 3.5) * 0.22, d = 14 + ((seed >>> (k * 5)) & 15);
         const x = P.x + Math.cos(a) * d, z = P.z + Math.sin(a) * d;
-        if (T.surface(x, z) > T.waterY + 0.6) { this.props.push(this.makeProp(x, z, Math.abs(seed + k * 101))); break; }
+        if (this.shipMode || T.surface(x, z) > T.waterY + 0.6) { this.props.push(this.makeProp(x, z, Math.abs(seed + k * 101))); break; }
       }
       this.lastSpawnAt.copy(P);
     }
@@ -1186,6 +1425,18 @@ export class World {
     this.ro?.disconnect();
     this.host = host;
     host.appendChild(this.renderer.domElement);
+    if (!this.toast) {
+      const t = document.createElement("div");
+      t.className = "world-toast";
+      t.setAttribute("role", "status");
+      t.setAttribute("aria-live", "polite");
+      t.style.cssText = "position:absolute;left:50%;top:14px;transform:translate(-50%,-8px);opacity:0;transition:opacity .6s,transform .6s;" +
+        "pointer-events:none;background:rgba(12,16,24,.82);color:#fff;padding:10px 18px;border-radius:12px;text-align:center;" +
+        "border:1px solid rgba(255,213,138,.45);box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:3;max-width:80%";
+      this.toast = t;
+    }
+    if (getComputedStyle(host).position === "static") host.style.position = "relative";
+    host.appendChild(this.toast);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
     this.resize();

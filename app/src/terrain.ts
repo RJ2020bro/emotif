@@ -5,6 +5,14 @@
 import type { Feature, WorldSpec } from "./worldspec";
 
 export const CHUNK = 24;
+export const REGION = 96;   // landmark grid (a multiple of CHUNK)
+export const LANDMARKS = ["temple", "lighthouse", "circle", "arch", "colossus", "shrine", "obelisk"] as const;
+export type LandmarkKind = typeof LANDMARKS[number];
+export type Landmark = { key: string; x: number; z: number; y: number; kind: LandmarkKind; rot: number; size: number; ruined: boolean; name: string; r0: number; r1: number };
+const TITLE: Record<LandmarkKind, string> = { temple: "Temple", lighthouse: "Lighthouse", circle: "Stones", arch: "Arch", colossus: "Colossus", shrine: "Shrine", obelisk: "Obelisk" };
+const SYL1 = ["Ae", "Al", "Ar", "Cal", "Cy", "Dor", "Ely", "Eu", "Hel", "Hy", "Ith", "Kor", "Lyr", "Mel", "Myr", "Nax", "Ory", "Pha", "Rho", "Sel", "Tha", "Xan", "Zeph", "Ost"];
+const SYL2 = ["a", "e", "i", "o", "y", "ae", "ei", "ou"];
+const SYL3 = ["ra", "ne", "ssa", "ros", "lon", "thos", "dra", "mis", "nia", "rix", "ion", "tis", "phos", "lene"];
 export const KIND = { ground: 0, sway: 1, glow: 2, bloom: 3, plain: 4, grass: 5, leaf: 6, bark: 7, stone: 8 } as const;
 export const WATER_Y = { voxel: -0.12, field: 0 };
 
@@ -87,8 +95,94 @@ export class Terrain {
     return n;
   }
 
-  /** Ground height in world units; sea level is 0. */
+  /** Ground height in world units; sea level is 0. Flattened into a terrace under each landmark. */
   height(x: number, z: number): number {
+    const h = this.baseHeight(x, z);
+    if (this.spec.landmarks <= 0) return h;
+    const L = this.landmarkAt(Math.floor(x / REGION), Math.floor(z / REGION));
+    if (!L || L.r1 <= 0) return h;
+    const d = Math.hypot(x - L.x, z - L.z);
+    if (d >= L.r1) return h;
+    return h + (L.y - h) * (1 - smooth(L.r0, L.r1, d));
+  }
+
+  // ---------------------------------------------------------------- landmarks
+  private marks = new Map<number, Landmark | null>();
+  /** The landmark of region (rx, rz), or null. At most one per REGION x REGION square, placed on suitable land and
+   * seeded by the spec, so the worker and the page agree on every landmark. */
+  landmarkAt(rx: number, rz: number): Landmark | null {
+    const key = rx * 100003 + rz;
+    const got = this.marks.get(key);
+    if (got !== undefined) return got;
+    const L = this.makeLandmark(rx, rz);
+    if (this.marks.size > 50000) this.marks.clear();
+    this.marks.set(key, L);
+    return L;
+  }
+
+  private makeLandmark(rx: number, rz: number): Landmark | null {
+    const p = this.spec.landmarks, s = this.s + 4242, H = Math.max(2, this.spec.terrain.height);
+    if (p <= 0 || ihash(rx, rz, s) > 0.12 + 0.7 * p) return null;
+    const kind = LANDMARKS[Math.floor(ihash(rx, rz, s + 1) * LANDMARKS.length)];
+    const coastal = kind === "lighthouse" || kind === "arch";
+    let best: { x: number; z: number; y: number; score: number } | null = null;
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+      const x = (rx + 0.22 + 0.56 * (i + ihash(rx * 4 + i, rz * 4 + j, s + 2)) / 4) * REGION;
+      const z = (rz + 0.22 + 0.56 * (j + ihash(rx * 4 + i, rz * 4 + j, s + 3)) / 4) * REGION;
+      const y = this.baseHeight(x, z);
+      if (y < 1.3 || y > 0.8 * H) continue;
+      const sl = Math.hypot(this.baseHeight(x + 3, z) - this.baseHeight(x - 3, z), this.baseHeight(x, z + 3) - this.baseHeight(x, z - 3)) / 6;
+      if (sl > (coastal ? 1.2 : 0.7)) continue;
+      const score = coastal ? -y : y - 6 * sl;
+      if (!best || score > best.score) best = { x, z, y, score };
+    }
+    if (!best) return null;
+    const size = 0.85 + 0.45 * ihash(rx, rz, s + 4);
+    const R: Record<LandmarkKind, [number, number]> = { temple: [11, 17], lighthouse: [5, 9], circle: [9, 13], arch: [0, 0], colossus: [6, 10], shrine: [6, 10], obelisk: [4, 7] };
+    const [r0, r1] = R[kind];
+    const y = this.voxel ? Math.round(best.y) : Math.max(1.2, best.y);
+    const nm = (k: number) => SYL1[Math.floor(ihash(rx, rz, s + k) * SYL1.length)];
+    const word = nm(5) + (ihash(rx, rz, s + 6) < 0.4 ? SYL2[Math.floor(ihash(rx, rz, s + 7) * SYL2.length)] : "") + SYL3[Math.floor(ihash(rx, rz, s + 8) * SYL3.length)];
+    const ruined = ihash(rx, rz, s + 9) < 0.35;
+    const title = kind === "temple" && ruined ? "Ruins" : TITLE[kind];
+    return { key: `${rx},${rz}`, x: best.x, z: best.z, y, kind, rot: ihash(rx, rz, s + 10) * Math.PI, size, ruined, name: `${title} of ${word}`, r0: r0 * size, r1: r1 * size };
+  }
+
+  /** Every landmark whose centre is within r of (x, z). */
+  landmarksNear(x: number, z: number, r: number): Landmark[] {
+    const out: Landmark[] = [];
+    for (let rz = Math.floor((z - r) / REGION); rz <= Math.floor((z + r) / REGION); rz++)
+      for (let rx = Math.floor((x - r) / REGION); rx <= Math.floor((x + r) / REGION); rx++) {
+        const L = this.landmarkAt(rx, rz);
+        if (L && Math.hypot(L.x - x, L.z - z) <= r) out.push(L);
+      }
+    return out;
+  }
+
+  /** Whether (x, z) is on a landmark's ground (no trees or grass there). */
+  nearLandmark(x: number, z: number, pad: number): boolean {
+    if (this.spec.landmarks <= 0) return false;
+    const L = this.landmarkAt(Math.floor(x / REGION), Math.floor(z / REGION));
+    return !!L && Math.hypot(x - L.x, z - L.z) < (L.kind === "arch" ? 9 * L.size : L.r1) + pad;
+  }
+
+  /** Nearest open water to (x, z): a spot whose surroundings (12 units) are sea too. For the ship. */
+  spawnSea(x = 0, z = 0): { x: number; z: number } | null {
+    const wet = (px: number, pz: number) => this.surface(px, pz) <= this.waterY + 0.01;
+    for (let r = 0; r <= 300; r += 6) {
+      const n = Math.max(1, Math.round(r / 3));
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+        if (!wet(px, pz)) continue;
+        let open = true;
+        for (let q = 0; q < 8 && open; q++) open = wet(px + Math.cos(q * 0.785) * 12, pz + Math.sin(q * 0.785) * 12);
+        if (open) return { x: px, z: pz };
+      }
+    }
+    return null;
+  }
+
+  private baseHeight(x: number, z: number): number {
     const t = this.spec.terrain;
     const e = (this.raw(x, z) - this.lo) / (this.hi - this.lo);
     let h = e > 0 ? t.height * Math.pow(e, 1.3) : Math.max(-8, e * 12);
@@ -197,6 +291,16 @@ class MB {
     this.quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1], col, kind, ground);
     this.quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], [0, 0, -1], col, kind, ground);
   }
+  /** Box of half-size (hx, hz), height h, standing on (cx, y0, cz) and turned by rot about the vertical. */
+  obox(cx: number, y0: number, cz: number, hx: number, h: number, hz: number, rot: number, col: RGB, kind: number, ground: number) {
+    const c = Math.cos(rot), s = Math.sin(rot), y1 = y0 + h;
+    const P = (u: number, y: number, w: number): V3 => [cx + u * c - w * s, y, cz + u * s + w * c];
+    this.quad([P(-hx, y1, -hz), P(hx, y1, -hz), P(hx, y1, hz), P(-hx, y1, hz)], [0, 1, 0], col, kind, ground);
+    this.quad([P(hx, y0, -hz), P(hx, y1, -hz), P(hx, y1, hz), P(hx, y0, hz)], [c, 0, s], col, kind, ground);
+    this.quad([P(-hx, y0, -hz), P(-hx, y1, -hz), P(-hx, y1, hz), P(-hx, y0, hz)], [-c, 0, -s], col, kind, ground);
+    this.quad([P(-hx, y0, hz), P(hx, y0, hz), P(hx, y1, hz), P(-hx, y1, hz)], [-s, 0, c], col, kind, ground);
+    this.quad([P(-hx, y0, -hz), P(hx, y0, -hz), P(hx, y1, -hz), P(-hx, y1, -hz)], [s, 0, -c], col, kind, ground);
+  }
   /** Frustum (r1 > 0) or cone (r1 = 0) standing on (x, y, z). */
   cone(x: number, y: number, z: number, r0: number, r1: number, h: number, sides: number, rot: number, col: RGB, kind: number, ground: number, smoothN: boolean) {
     const slope = (r0 - r1) / h;
@@ -283,6 +387,8 @@ export function buildChunk(T: Terrain, cx: number, cz: number, mood: ChunkMood =
   if (T.voxel) voxelGround(mb, T, cx, cz);
   else fieldGround(mb, T, cx, cz, T.spec.style === "lowpoly" ? 2 : 1, T.spec.style !== "dream" && T.spec.style !== "natural");
   let features = placeFeatures(mb, T, cx, cz, mood, lod);
+  const L = T.spec.landmarks > 0 ? T.landmarkAt(Math.floor(cx * CHUNK / REGION), Math.floor(cz * CHUNK / REGION)) : null;
+  if (L && Math.floor(L.x / CHUNK) === cx && Math.floor(L.z / CHUNK) === cz) { buildLandmark(mb, T, L); features++; }
   if (T.spec.style === "natural" && lod === 0) features += grass(mb, T, cx, cz, mood);
   return mb.finish(features);
 }
@@ -301,7 +407,7 @@ function grass(mb: MB, T: Terrain, cx: number, cz: number, m: ChunkMood): number
   for (let k = 0; k < n; k++) {
     const gx = x0 + ihash(cx * 7919 + k, cz, s) * CHUNK, gz = z0 + ihash(cx, cz * 7919 + k, s + 1) * CHUNK;
     const y = T.height(gx, gz);
-    if (y < 0.9 || y / H > 0.62) continue;
+    if (y < 0.9 || y / H > 0.62 || T.nearLandmark(gx, gz, -2)) continue;
     const e = 0.5, sl = Math.hypot(T.height(gx + e, gz) - T.height(gx - e, gz), T.height(gx, gz + e) - T.height(gx, gz - e)) / (2 * e);
     if (sl > 0.75) continue;
     const r = ihash(k, cx - cz, s + 2), th = r * Math.PI, h = tall * (0.55 + 0.8 * ihash(k, cz + cx, s + 3)), w = 0.07 + 0.05 * r;
@@ -397,7 +503,7 @@ function placeFeatures(mb: MB, T: Terrain, cx: number, cz: number, mood: ChunkMo
     let x: number, z: number, y: number;
     if (T.voxel) { x = gx * G + Math.floor(u1 * G); z = gz * G + Math.floor(u2 * G); y = T.column(x, z); }
     else { x = gx * G + u1 * G; z = gz * G + u2 * G; y = T.height(x, z); }
-    if (y < (T.voxel ? 1 : 0.6)) continue;
+    if (y < (T.voxel ? 1 : 0.6) || T.nearLandmark(x, z, 1.5)) continue;
     const u = y / Math.max(2, spec.terrain.height);
     if (u > 0.8 && !HIGH_OK.includes(kind)) continue;
     if (kind === "palms" && y > 4 + 0.15 * spec.terrain.height) continue;
@@ -600,5 +706,148 @@ function naturalFeature(mb: MB, kind: Feature, x: number, y: number, z: number, 
       break;
     default:
       smoothFeature(mb, kind, x, y, z, s, r2, C, true, seed);
+  }
+}
+
+// ---------------------------------------------------------------- landmarks
+const MARBLE: RGB = [0.86, 0.84, 0.78], MARBLE_D: RGB = [0.7, 0.67, 0.6], TERRA: RGB = [0.72, 0.36, 0.24], BRONZE: RGB = [0.36, 0.52, 0.45];
+const FLAME: RGB = [1, 0.78, 0.42], MEGALITH: RGB = [0.52, 0.5, 0.46], GOLD: RGB = [1, 0.84, 0.45];
+
+/** Temples, lighthouses, stone circles, sea arches, guardian colossi, round shrines and obelisks, built from boxes,
+ * columns and blobs. Each keeps a lit flame or crystal (glow) so it reads from afar and at night. */
+function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
+  const K = KIND, S = L.size, { x, z, y, rot } = L, sd = T.spec.seed + Math.round(L.x * 7 + L.z * 13);
+  const r = (k: number) => ihash(sd, k, 77);
+  const at = (u: number, w: number): [number, number] => [x + u * Math.cos(rot) - w * Math.sin(rot), z + u * Math.sin(rot) + w * Math.cos(rot)];
+  const column = (u: number, w: number, y0: number, h: number, rad: number, col: RGB) => {
+    const [px, pz] = at(u, w);
+    mb.obox(px, y0, pz, rad * 1.25, rad * 0.5, rad * 1.25, rot, col, K.stone, y);
+    mb.cone(px, y0 + rad * 0.5, pz, rad, rad * 0.82, h - rad, 10, 0, col, K.stone, y, true);
+    mb.obox(px, y0 + h - rad * 0.1, pz, rad * 1.3, rad * 0.45, rad * 1.3, rot, col, K.stone, y);
+  };
+  const fallen = (u: number, w: number, len: number, rad: number, a: number) => {
+    const [px, pz] = at(u, w);
+    mb.obox(px, y - 0.1, pz, len / 2, rad * 1.6, rad, rot + a, MARBLE_D, K.stone, y);
+  };
+  const flame = (px: number, py: number, pz: number, k: number) => {
+    mb.cone(px, py, pz, 0.55 * k, 0.75 * k, 0.6 * k, 8, 0, [0.25, 0.22, 0.2], K.plain, y, false);
+    mb.blob(px, py + 0.95 * k, pz, 0.45 * k, 0.7 * k, 0.45 * k, FLAME, K.glow, y, true, sd);
+  };
+  switch (L.kind) {
+    case "temple": {
+      const hx = 9.6 * S, hz = 6.4 * S;
+      mb.obox(x, y - 2.5, z, hx, 2.7, hz, rot, MARBLE_D, K.stone, y);
+      mb.obox(x, y + 0.2, z, hx - 0.5, 0.4, hz - 0.5, rot, MARBLE, K.stone, y);
+      mb.obox(x, y + 0.6, z, hx - 1, 0.4, hz - 1, rot, MARBLE, K.stone, y);
+      const fl = y + 1, H = 7 * S, rad = 0.55 * S, cols: [number, number][] = [];
+      for (let i = 0; i < 6; i++) for (const w of [-1, 1]) cols.push([(-7.5 + 3 * i) * S, w * 4.5 * S]);
+      for (const u of [-1, 1]) for (const w of [-1.5, 1.5]) cols.push([u * 7.5 * S, w * S]);
+      let k = 0;
+      for (const [u, w] of cols) {
+        const q = r(k++);
+        if (!L.ruined) column(u, w, fl, H, rad, MARBLE);
+        else if (q < 0.25) fallen(u + 1.5 * S, w * 1.25, H * 0.6, rad, 0.4 + q * 4);
+        else column(u, w, fl, q < 0.6 ? H * (0.25 + q) : H, rad, MARBLE);
+      }
+      mb.obox(x, fl, z, 4.4 * S, H * 0.92, 2.7 * S, rot, MARBLE_D, K.stone, y);          // the cella
+      if (!L.ruined) {
+        const top = fl + H + 0.3 * S;
+        mb.obox(x, top, z, 8.4 * S, 1.1 * S, 5.4 * S, rot, MARBLE, K.stone, y);
+        mb.obox(x, top + 1.1 * S, z, 8.7 * S, 0.35 * S, 5.7 * S, rot, MARBLE_D, K.stone, y);
+        const ry = top + 1.45 * S, ph = 2.3 * S, inC: V3 = [x, ry - 1, z];
+        const P = (u: number, yy: number, w: number): V3 => { const [px, pz] = at(u, w); return [px, yy, pz]; };
+        const U = 8.7 * S, W = 5.7 * S;
+        for (const su of [-1, 1]) mb.tri(P(su * U, ry, -W), P(su * U, ry, W), P(su * U, ry + ph, 0), null, MARBLE, K.stone, y, inC);
+        for (const sw of [-1, 1]) {
+          mb.tri(P(-U, ry, sw * W), P(U, ry, sw * W), P(U, ry + ph, 0), null, TERRA, K.plain, y, inC);
+          mb.tri(P(-U, ry, sw * W), P(U, ry + ph, 0), P(-U, ry + ph, 0), null, TERRA, K.plain, y, inC);
+        }
+      } else {
+        for (let i = 0; i < 3; i++) fallen((-6 + 5 * i) * S, (i % 2 ? 7.5 : -7.8) * S, 2.6 * S, 0.5 * S, 1.1 * i);
+      }
+      const [fx, fz] = at(10.6 * S, 0);
+      flame(fx, T.height(fx, fz) - 0.2, fz, 1.2 * S);
+      break;
+    }
+    case "lighthouse": {
+      mb.blob(x, y - 1.2, z, 4.6 * S, 2.6 * S, 4.6 * S, MEGALITH, K.stone, y, true, sd, true);
+      let yy = y + 0.6, rad = 2.6 * S;
+      for (let k = 0; k < 4; k++) {
+        const h = 3.4 * S, r1 = rad - 0.22 * S;
+        mb.cone(x, yy, z, rad, r1, h, 12, rot, k % 2 ? TERRA : MARBLE, K.stone, y, true);
+        yy += h; rad = r1;
+      }
+      mb.cone(x, yy, z, rad + 0.7 * S, rad + 0.7 * S, 0.45 * S, 12, rot, MARBLE_D, K.stone, y, false);
+      mb.blob(x, yy + 1.4 * S, z, 1.25 * S, 1.2 * S, 1.25 * S, FLAME, K.glow, y, true, sd);
+      mb.cone(x, yy + 2.5 * S, z, 1.7 * S, 0, 1.8 * S, 10, rot, [0.25, 0.27, 0.3], K.plain, y, false);
+      break;
+    }
+    case "circle": {
+      const n = 11;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2, px = x + Math.cos(a) * 7 * S, pz = z + Math.sin(a) * 7 * S, q = r(k);
+        if (L.ruined && q < 0.3) { mb.obox(px, y - 0.2, pz, 2.1 * S, 0.9 * S, 0.7 * S, a + 0.5, MEGALITH, K.stone, y); continue; }
+        mb.obox(px, y - 1, pz, 0.55 * S, (4.2 + 1.6 * q) * S, 0.95 * S, a, MEGALITH, K.stone, y);
+        if (k % 2 === 0 && k + 1 < n && !(L.ruined && r(k + 1) < 0.3)) {
+          const a2 = a + Math.PI / n, lx = x + Math.cos(a2) * 7 * S, lz = z + Math.sin(a2) * 7 * S;
+          mb.obox(lx, y + (3.2 + 1.6 * Math.min(q, r(k + 1))) * S, lz, 0.6 * S, 0.7 * S, 2.6 * S, a2, MEGALITH, K.stone, y);
+        }
+      }
+      mb.obox(x, y - 0.5, z, 1.5 * S, 1.6, 1 * S, rot, MEGALITH, K.stone, y);
+      for (let k = 0; k < 3; k++) {
+        const a = rot + k * 2.1, d = k ? 0.4 * S : 0;
+        mb.cone(x + Math.cos(a) * d, y + 1, z + Math.sin(a) * d, (0.45 - 0.1 * k) * S, 0, (2.4 - 0.5 * k) * S, 5, a, T.colors().crystal, K.glow, y, false);
+      }
+      break;
+    }
+    case "arch": {
+      const span = 6 * S, w = 2.6 * S;
+      for (const su of [-1, 1]) {
+        const [px, pz] = at(su * span, 0), g = Math.min(T.height(px, pz), y) - 7;
+        mb.obox(px, g, pz, 1.4 * S, y - g + 10 * S, w, rot, MEGALITH, K.stone, y);
+        mb.blob(px, g + 2, pz, 2.6 * S, 3, 3 * S, MEGALITH, K.stone, y, true, sd + su, false);
+      }
+      mb.obox(x, y + 9.4 * S, z, span + 1.6 * S, 2.6 * S, w, rot, MEGALITH, K.stone, y);
+      mb.blob(x, y + 12.2 * S, z, span, 1.4 * S, w * 1.1, MEGALITH, K.stone, y, true, sd + 3, true);
+      flame(x, y + 13.2 * S, z, 0.9 * S);
+      break;
+    }
+    case "colossus": {
+      mb.obox(x, y - 1.5, z, 3.4 * S, 4 * S + 1.5, 3.4 * S, rot, MARBLE_D, K.stone, y);
+      const b = y + 4 * S, P = (u: number, w: number) => at(u, w);
+      for (const w of [-1, 1]) { const [px, pz] = P(0, w * 1.1 * S); mb.obox(px, b, pz, 0.8 * S, 6 * S, 0.75 * S, rot, BRONZE, K.stone, y); }
+      const [tx, tz] = P(0, 0);
+      mb.obox(tx, b + 6 * S, tz, 1.5 * S, 5.5 * S, 2.3 * S, rot, BRONZE, K.stone, y);
+      mb.blob(tx, b + 12.6 * S, tz, 1.05 * S, 1.3 * S, 1.05 * S, BRONZE, K.stone, y, true, sd, true);
+      const [lx, lz] = P(0, -2.9 * S);
+      mb.obox(lx, b + 6.6 * S, lz, 0.55 * S, 4.6 * S, 0.55 * S, rot, BRONZE, K.stone, y);           // arm at the side
+      const [ax, az] = P(0, 2.9 * S);
+      mb.obox(ax, b + 9.5 * S, az, 0.55 * S, 6.5 * S, 0.55 * S, rot, BRONZE, K.stone, y);           // arm raised
+      mb.blob(ax, b + 16.8 * S, az, 0.9 * S, 1.3 * S, 0.9 * S, FLAME, K.glow, y, true, sd + 1);   // the torch
+      break;
+    }
+    case "shrine": {
+      mb.cone(x, y - 1.2, z, 5.2 * S, 5.2 * S, 1.7, 18, rot, MARBLE_D, K.stone, y, true);
+      const n = 8, fl = y + 0.5, H = 4.6 * S;
+      for (let k = 0; k < n; k++) {
+        if (L.ruined && r(k) < 0.3) continue;
+        const a = rot + (k / n) * Math.PI * 2;
+        const px = x + Math.cos(a) * 3.9 * S, pz = z + Math.sin(a) * 3.9 * S;
+        mb.cone(px, fl, pz, 0.38 * S, 0.32 * S, H, 10, 0, MARBLE, K.stone, y, true);
+      }
+      if (!L.ruined) {
+        mb.cone(x, fl + H, z, 4.5 * S, 4.5 * S, 0.6 * S, 18, rot, MARBLE, K.stone, y, true);
+        mb.blob(x, fl + H + 0.6 * S, z, 4.3 * S, 2.6 * S, 4.3 * S, TERRA, K.plain, y, true, sd, true);
+      }
+      flame(x, fl, z, 1.1 * S);
+      break;
+    }
+    case "obelisk": {
+      mb.obox(x, y - 1, z, 2.2 * S, 1.6, 2.2 * S, rot, MARBLE_D, K.stone, y);
+      mb.obox(x, y + 0.6, z, 1.6 * S, 0.6, 1.6 * S, rot, MARBLE_D, K.stone, y);
+      mb.cone(x, y + 1.2, z, 1.05 * S, 0.68 * S, 12 * S, 4, rot + Math.PI / 4, MARBLE, K.stone, y, false);
+      mb.cone(x, y + 1.2 + 12 * S, z, 0.68 * S, 0, 1.4 * S, 4, rot + Math.PI / 4, GOLD, K.glow, y, false);
+      break;
+    }
   }
 }
