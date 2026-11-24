@@ -51,9 +51,18 @@ const CHUNK_VS = /* glsl */`
 attribute vec3 aColor; attribute vec2 aExtra; attribute vec2 aUv;
 uniform float uTime, uSway;
 varying vec3 vColor; varying vec3 vNormal; varying vec3 vWorld; varying float vKind; varying float vLift; varying vec2 vUv;
+varying float vM1;
+float h12v(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+float vnv(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h12v(i), h12v(i + vec2(1.0, 0.0)), f.x), mix(h12v(i + vec2(0.0, 1.0)), h12v(i + vec2(1.0, 1.0)), f.x), f.y); }
 void main() {
   vec3 p = position;
   vUv = aUv;
+  vM1 = 0.0;
+  if (aExtra.x < 0.5) {   // ground: the slow (22-unit) patchiness is smooth enough to work out per vertex, not per pixel
+    vec2 q = (modelMatrix * vec4(p, 1.0)).xz * 0.045;
+    vM1 = (vnv(q) * 0.5 + vnv(q * 2.03 + vec2(17.1, 9.2)) * 0.25 + vnv(q * 4.1209 + vec2(51.8, 28.0)) * 0.125) / 0.875;
+  }
   if (abs(aExtra.x - 1.0) < 0.5 || abs(aExtra.x - 6.0) < 0.5) {
     float lift = aExtra.y;
     p.x += sin(uTime * 1.6 + p.x * 0.37 + p.z * 0.29) * uSway * lift * 0.05;
@@ -78,6 +87,7 @@ uniform vec3 uSunDir, uSunColor, uAmbSky, uAmbGround, uAccent;
 uniform float uGlow, uBloom, uBlock, uToon, uNeon, uSnow, uWaterY;
 uniform sampler2D tGrass, tGrassN, tRock, tRockN, tDirt, tSand, tBark, tLeaves;
 varying vec3 vColor; varying vec3 vNormal; varying vec3 vWorld; varying float vKind; varying float vLift; varying vec2 vUv;
+varying float vM1;
 ${GRADE}
 // photo texture sampled at two scales with a rotated second layer, blended by noise, so tiling doesn't show
 vec3 tex2(sampler2D t, vec2 q, float s) {
@@ -95,7 +105,7 @@ vec3 naturalShade(vec3 n, float kind, out float alpha) {
     // ground from photographs: grass, dry dirt patches, sand by the water, rock on slopes, snow on peaks;
     // the theme's palette (vColor) tints the grass so every world keeps its own colours
     // only the layers that show at this point are sampled (most of the ground is grass alone)
-    float m1 = fbm3(q * 0.045), m2 = vn(q * 0.6);
+    float m1 = vM1, m2 = vn(q * 0.6);
     float slope = 1.0 - n.y;
     float wr = smoothstep(0.2, 0.36, slope + (m2 - 0.5) * 0.12);
     float wd = smoothstep(0.58, 0.78, m1 + 0.25 * (m2 - 0.5)) * (1.0 - wr);
@@ -494,12 +504,12 @@ export class World {
 
   init(): boolean {
     try {
-      this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+      this.renderer = new THREE.WebGLRenderer({ antialias: (window.devicePixelRatio || 1) < 1.5, powerPreference: "high-performance" });
     } catch {
       return false;
     }
     this.maxPR = Math.min(window.devicePixelRatio || 1, 1.25);   // beyond this the cost grows faster than the gain
-    this.pr = this.maxPR;
+    this.pr = Math.min(this.maxPR, 1);         // start modest; adapt() raises it when frames are fast
     this.renderer.setPixelRatio(this.pr);
     this.startWorker();
     const el = this.renderer.domElement;
@@ -830,6 +840,7 @@ export class World {
     this.chunks.clear();
     this.gen++;
     this.pending.clear();
+    this.arrived = [];
     this.worker?.postMessage({ type: "spec", spec: this.specV, gen: this.gen });
     const st = this.specV.style;
     this.U.uBlock.value = st === "voxel" ? 1 : 0;
@@ -941,12 +952,21 @@ export class World {
 
   private onChunk(m: { gen: number; key: string; cx: number; cz: number; lod: number; g: ChunkGeometry }) {
     if (m.gen !== this.gen) return;
-    if (this.pending.get(m.key) === m.lod) this.pending.delete(m.key);
+    const drop = () => { if (this.pending.get(m.key) === m.lod) this.pending.delete(m.key); };
     const ccx = Math.floor(this.pos.x / CHUNK), ccz = Math.floor(this.pos.z / CHUNK);
-    if (Math.max(Math.abs(m.cx - ccx), Math.abs(m.cz - ccz)) > this.radius + 1) return;   // explorer has moved on
+    if (Math.max(Math.abs(m.cx - ccx), Math.abs(m.cz - ccz)) > this.radius + 1) { drop(); return; }   // explorer has moved on
     const have = this.chunks.get(m.key);
-    if (have && have.lod <= m.lod) return;                                                // already as detailed
-    this.placeChunk(m.key, m.g, m.lod);
+    if (have && have.lod <= m.lod) { drop(); return; }                                                // already as detailed
+    this.arrived.push(m);   // placed by placeArrived (still counted as pending, so it is not requested again)
+  }
+  private arrived: { key: string; cx: number; cz: number; lod: number; g: ChunkGeometry }[] = [];
+  private placeArrived() {
+    for (let n = 0; n < 2 && this.arrived.length; n++) {
+      const m = this.arrived.shift()!, have = this.chunks.get(m.key);
+      if (this.pending.get(m.key) === m.lod) this.pending.delete(m.key);
+      if (have && have.lod <= m.lod) { n--; continue; }
+      this.placeChunk(m.key, m.g, m.lod);
+    }
   }
 
   /** Whether chunks are being built in a worker (tests). */
@@ -1487,6 +1507,7 @@ export class World {
     if (this.mode === "world") {
       this.updateWorld(dt, motion);
       this.streamChunks(this.chunks.size < 9 ? 40 : 6);
+      this.placeArrived();
     } else this.updateArm();
     if (!this.paused) this.adapt(dt);
     this.lastRender = t;
@@ -1496,13 +1517,14 @@ export class World {
 
   private adapt(dt: number) {
     this.frameEma += (dt - this.frameEma) * 0.1;
-    if (this.frameEma > 1 / 28) { this.slowFor += dt; this.fastFor = 0; }
-    else if (this.frameEma < 1 / 50) { this.fastFor += dt; this.slowFor = 0; }
+    // aim for 40+ fps: lower the resolution quickly when slow, draw less world if that is not enough, raise slowly
+    if (this.frameEma > 1 / 40) { this.slowFor += dt; this.fastFor = 0; }
+    else if (this.frameEma < 1 / 55) { this.fastFor += dt; this.slowFor = 0; }
     else { this.slowFor = 0; this.fastFor = 0; }
     let next = this.pr;
-    if (this.slowFor > 3 && this.pr <= 0.35 && this.radius > 2) { this.radius = 2; this.slowFor = 0; }   // still slow at the lowest resolution: draw less world
-    if (this.slowFor > 1.5 && this.pr > 0.35) next = Math.max(0.35, this.pr * 0.75);
-    else if (this.fastFor > 5 && this.pr < this.maxPR) next = Math.min(this.maxPR, this.pr / 0.8);
+    if (this.slowFor > 1.5 && this.pr <= 0.6 && this.radius > 2) { this.radius = 2; this.slowFor = 0; }
+    if (this.slowFor > 0.8 && this.pr > 0.35) next = Math.max(0.35, this.pr * 0.8);
+    else if (this.fastFor > 4 && this.pr < this.maxPR) next = Math.min(this.maxPR, this.pr / 0.85);
     if (next !== this.pr) {
       this.pr = next;
       this.slowFor = 0; this.fastFor = 0;
