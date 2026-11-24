@@ -637,18 +637,18 @@ function runEngine(channels, model, seconds, va, artifactsEvery = 0) {
       cmds.get(k).add(c);
     });
     assert.equal(sim.storySegment, "Resting baseline");
-    const total = sim.calibSec + So.STORY_SECONDS + 20;          // into the first segment again (25 s long)
+    const total = sim.calibSec + So.STORY_SECONDS + 10;          // into the first segment again (20 s long)
     for (let i = 0; i < sim.fs * total; i++) {
       e.push([sim.sample()]);
       if (seen.at(-1) !== sim.storySegment) seen.push(sim.storySegment);
-      if (sim.storySegment === "Stress builds") assert.equal(sim.activeState, "stress");
+      if (sim.storySegment === "Stress: a storm rises") assert.equal(sim.activeState, "stress");
     }
     const labels = So.STORY.map(s => s.label);
     const expect = ["Resting baseline", ...labels.filter((l, i) => i === 0 || l !== labels[i - 1]), labels[0]];
     assert.deepEqual(seen, expect, "story order, then it loops");
     assert.ok(Math.abs(So.STORY_SECONDS - 180) <= 30, `about three minutes (${So.STORY_SECONDS} s)`);
-    assert.ok(cmds.get("Focusing to lift the crystal").has("focus") && cmds.get("Relaxing to set it down").has("relax"), JSON.stringify([...cmds].map(([k, v]) => [k, [...v]])));
-    console.log(`story mode OK: ${labels.length} segments over ${So.STORY_SECONDS} s, loops, focus segment lifts and relax segment sets down`);
+    assert.ok(cmds.get("Focus: kindle the lantern").has("focus") && cmds.get("Relax: light the beacon").has("relax"), JSON.stringify([...cmds].map(([k, v]) => [k, [...v]])));
+    console.log(`story mode OK: ${labels.length} segments over ${So.STORY_SECONDS} s, loops, focus segment kindles the lantern and relax segment lights the beacon`);
   }
   // valence / arousal targeting still reads back through the neuro-markers (the browser test relies on it)
   {

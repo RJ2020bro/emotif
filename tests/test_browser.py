@@ -129,7 +129,7 @@ def run_with_server(browser, errors):
         assert page.evaluate("document.querySelectorAll('#evidence img').length") == 7, "7 result figures embedded"
         time.sleep(1)
         shot(page, "method")
-        page.locator("nav.nav button[data-view=models]").dispatch_event("click")
+        page.evaluate("window.emotif.go('models')")
         page.locator("#modelList .card-opt:nth-child(1)").dispatch_event("click")
         wait(page, "window.emotif.modelId === 'builtin:brain' && window.emotif.engine.model !== null", 5, "brain-only model loaded")
         wait(page, "window.emotif.engine.last && window.emotif.engine.last.source === 'model' && window.emotif.engine.last.cmp", 60, "model decoding with comparison")
@@ -191,7 +191,7 @@ def run_with_server(browser, errors):
         check_guided_session(page, port, sessions)
 
         # ---- personalization from the ratings
-        page.locator("nav.nav button[data-view=models]").dispatch_event("click")
+        page.evaluate("window.emotif.go('models')")
         page.locator("#personal .btn.primary").dispatch_event("click")
         wait(page, "!!window.emotif.personal", 30, "personal model")
         page.locator("#personal .btn:has-text('Use personal model')").dispatch_event("click")
@@ -206,7 +206,7 @@ def run_with_server(browser, errors):
                 os.remove(os.path.join(ROOT, "models", f))
 
         # ---- sessions list and replay
-        page.locator("nav.nav button[data-view=sessions]").dispatch_event("click")
+        page.evaluate("window.emotif.go('sessions')")
         wait(page, "document.querySelectorAll('#sessionList tbody tr').length >= 1", 10, "sessions table")
         page.locator("#sessionList tbody tr:first-child button:has-text('Report')").dispatch_event("click")
         wait(page, "document.querySelectorAll('#report tbody tr').length === 3", 10, "session report with 3 blocks")
@@ -217,7 +217,7 @@ def run_with_server(browser, errors):
 
         # ---- arm: local twin with simulated brain intent
         page.evaluate("window.emotif.useSource('sim')")
-        page.locator("nav.nav button[data-view=arm]").dispatch_event("click")
+        page.evaluate("window.emotif.go('arm')")
         page.evaluate("const c = document.getElementById('armClear'); c.checked = true; c.dispatchEvent(new Event('change'))")
         page.locator("#armEnable").dispatch_event("click")
         assert page.evaluate("window.emotif.arm.enabled")
@@ -413,22 +413,22 @@ def check_personal_states(page):
 
 
 def check_mind_control(page):
-    """Natural world: crystals appear near the path; a focus command lifts the nearest, a relax command sets it down
-    and it blooms (the decoder's command is stubbed so the test doesn't depend on simulated alpha)."""
+    """Natural world: the voyage reaches a landmark; a focus command kindles the lantern, a relax command lights its
+    beacon (the decoder's command is stubbed so the test doesn't depend on simulated alpha)."""
     page.evaluate("window.emotif.go('live')")
     page.select_option("#worldStyle", "natural")
     page.evaluate("window.emotif.world.interactive = true; window.emotif.world.explore = true")
-    wait(page, "window.emotif.world.aiming", 90, "a crystal within reach")
+    wait(page, "window.emotif.world.aiming", 90, "an unlit beacon within reach")
     page.evaluate("window.emotif.mind.update = () => ({ level: 1.2, command: 'focus', holdFor: 2, held: false })")
-    wait(page, "window.emotif.world.carrying", 20, "focus lifts the crystal")
+    wait(page, "window.emotif.world.carrying", 20, "focus kindles the lantern")
     assert page.inner_text("#mindLabel") == "Focus"
     page.evaluate("window.emotif.mind.update = () => ({ level: -1.2, command: 'relax', holdFor: 2, held: false })")
-    wait(page, "!window.emotif.world.carrying && window.emotif.world.placedCount >= 1", 20, "relaxing sets it down")
+    wait(page, "!window.emotif.world.carrying && window.emotif.world.placedCount >= 1", 20, "relaxing lights the beacon")
     time.sleep(2.5)
     shot(page, "world_mind_control")
     page.evaluate("delete window.emotif.mind.update")
     page.select_option("#worldStyle", "auto")
-    print("mind control OK: crystal targeted, lifted on focus, placed and blooming on relax")
+    print("mind control OK: beacon targeted, lantern kindled on focus, beacon lit on relax")
 
 
 def check_inner_world(page):
@@ -494,13 +494,15 @@ def run_without_server(browser, errors):
     check_accessibility(page)
     check_edf_playback(page)
     page.evaluate("window.emotif.useSource('sim')")
-    page.locator("nav.nav button[data-view=sessions]").dispatch_event("click")
+    page.evaluate("window.emotif.go('sessions')")
     assert "server" in page.inner_text("#sessionList")
     # booth demo: self-running tour with captions, then restores the previous state
     page.evaluate("window.emotif.toggleDemo()")
     wait(page, "!document.getElementById('demoCaption').hidden && document.getElementById('demoText').textContent.length > 20", 10, "demo caption")
     wait(page, "window.emotif.engine.calibrated", 60, "demo baseline")
-    wait(page, "document.getElementById('demoStep').textContent.startsWith('2')", 20, "demo step 2")
+    wait(page, "document.getElementById('demoStep').textContent === 'Calm seas'", 20, "demo story starts")
+    wait(page, "Object.keys((window.emotif.engine.last || {}).states || {}).length === 6", 20, "six states decoded from the generated Insight stream")
+    wait(page, "window.emotif.world.realm.name === 'calm'", 30, "calm realm from the decoded state")
     page.evaluate("window.emotif.toggleDemo()")
     assert page.evaluate("document.getElementById('demoCaption').hidden && window.emotif.demo === null")
     check_personal_states(page)

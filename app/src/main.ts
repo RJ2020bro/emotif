@@ -6,7 +6,7 @@ import { ArmController, INTENT_ACTIONS, INIT, type ArmMode } from "./arm";
 import { ServerLink, ServerDeviceSource, type SessionMeta, type ServerState } from "./server";
 import { Sonifier, Announcer } from "./sonify";
 import { CortexSource } from "./cortex";
-import { STATES, STATE_LABEL, calibrateStates, validateStates, type StateWindow } from "./states";
+import { STATES, STATE_LABEL, calibrateStates, validateStates, type PersonalStates, type StateWindow } from "./states";
 import { CheckinAccumulator, MIN_DAYS, trends, type CheckinEntry } from "./checkin";
 import { AlphaControl } from "./interact";
 import { Simulator, CsvPlayback, MuseBluetooth, OpenBciSerial, SIM_MONTAGES, simBlockFor, type Source, type SourceSink, type SimMode } from "./sources";
@@ -20,6 +20,7 @@ import { ICONS } from "./icons";
 import builtinMuse from "../../models/muse_mental_logreg.json";
 import builtinGameemo from "../../models/gameemo_logreg.json";
 import builtinBrain from "../../models/gameemo_brain.json";
+import demoStates from "../../models/demo_insight_states.json";
 import builtinInsight from "../../models/insight_brain.json";
 import artifactModel from "../../models/artifact_detector.json";
 
@@ -99,10 +100,13 @@ type ModelEntry = { id: string; name: string; desc: string; model: ModelFile | n
 type View = "live" | "study" | "arm" | "models" | "sessions" | "method" | "setup";
 /** [view, sidebar label, icon, short label for the phone tab bar] */
 const VIEWS: [View, string, keyof typeof ICONS, string][] = [
-  ["live", "Live world", "live", "Live"], ["setup", "Headset setup", "setup", "Setup"], ["study", "Run a study", "study", "Study"],
+  ["live", "Voyage", "live", "Voyage"], ["setup", "Headset", "setup", "Headset"], ["study", "Research", "study", "Research"],
+  ["method", "About", "method", "About"],
   ["sessions", "Recordings", "sessions", "Saved"], ["models", "Mood decoders", "models", "Decode"], ["arm", "Robot arm", "arm", "Arm"],
-  ["method", "How it works", "method", "How"],
 ];
+/** Views with their own tab; the others open from inside Research (recordings, decoders) or Headset (robot arm). */
+const TABS: View[] = ["live", "setup", "study", "method"];
+const PARENT: Partial<Record<View, View>> = { sessions: "study", models: "study", arm: "setup" };
 /** A panel title in plain words, with the technical term underneath in small text. */
 function title(tag: "h1" | "h2", text: string, term?: string, id?: string): HTMLElement {
   return h(tag, { id }, text, term ? h("small", { class: "term" }, term) : null);
@@ -156,7 +160,7 @@ class App {
   personal: { model: ModelFile; report: string } | null = null;
   armCal: { running: boolean; text: string } = { running: false, text: "" };
   traceMode: "clean" | "filtered" = "clean";
-  demo: { on: boolean; t0: number; prevSource: string; prevMode: SimMode; prevCalib: number; prevModel: string } | null = null;
+  demo: { on: boolean; t0: number; prevSource: string; prevMode: SimMode; prevCalib: number; prevModel: string; prevMontage: string; prevSeed: number | null; prevStates: PersonalStates | null } | null = null;
   lastFit: { status: FitStatus; ptp: number; mainsRatio: number }[] = [];
   worldStyle: Style | "auto" = "auto";
   cmpDim: "a" | "v" = "a";
@@ -183,7 +187,7 @@ class App {
       this.world.interactive = store.get("worldMind", true);
       this.world.onInteract = (type, info) => {
         this.marker(`mind_${type}`, info);
-        this.announcer?.say(`mind:${type}`, type === "lift" ? "Crystal lifted" : `Crystal placed. ${info.placed} placed so far`, 2);
+        this.announcer?.say(`mind:${type}`, type === "lift" ? "Lantern kindled" : `Beacon lit. ${info.placed} burning`, 2);
       };
       ($("worldExplore") as HTMLInputElement).checked = this.world.explore;
       this.paintWorldStatus();
@@ -222,6 +226,7 @@ class App {
     const nav = h("nav", { class: "nav", "aria-label": "Sections" });
     const tab = h("nav", { class: "tabbar", "aria-label": "Sections" });
     for (const [v, label, icon, short] of VIEWS) {
+      if (!TABS.includes(v)) continue;
       nav.append(h("button", { "data-view": v, onclick: () => this.go(v), html: `${ICONS[icon]}<span>${label}</span>` }));
       tab.append(h("button", { "data-view": v, onclick: () => this.go(v), "aria-label": label, html: `${ICONS[icon]}<span>${short}</span>` }));
     }
@@ -254,13 +259,20 @@ class App {
     this.paintThemeIcon();
   }
 
+  /** Research's own sections: run a session, recordings, decoders. */
+  subNav(cur: View): HTMLElement {
+    const items: [View, string][] = [["study", "Run a session"], ["sessions", "Recordings"], ["models", "Mood decoders"]];
+    return h("nav", { class: "subnav", "aria-label": "Research sections" }, ...items.map(([v, t]) =>
+      h("button", { type: "button", class: "subnav-b", "aria-current": v === cur ? "page" : undefined, onclick: () => this.go(v) }, t)));
+  }
+
   go(v: View) {
     if (!VIEWS.some(x => x[0] === v)) v = "live";
     this.view = v;
     store.set("view", v);
     document.querySelectorAll<HTMLElement>(".view").forEach(s => { s.hidden = s.dataset.view !== v; });
     document.querySelectorAll<HTMLElement>(".nav button, .tabbar button").forEach(b => {
-      if (b.dataset.view === v) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+      if (b.dataset.view === (PARENT[v] ?? v)) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
     });
     if (this.world.ok) {
       if (v === "arm") { this.world.attach($("armViewport")); this.world.focusArm(true); }
@@ -422,7 +434,7 @@ class App {
       } }), h("span", {}, "Walk around on its own (or click the world and steer with the arrow keys or W A S D)")),
       h("label", { class: "check" }, h("input", { type: "checkbox", id: "worldMind", checked: store.get("worldMind", true), onchange: e => {
         this.world.interactive = (e.target as HTMLInputElement).checked; store.set("worldMind", this.world.interactive);
-      } }), h("span", {}, "Move the glowing crystal with your brain: focus to lift it, relax to set it down (uses the alpha rhythm; face movement is ignored)")),
+      } }), h("span", {}, "Light the beacons with your brain: near a landmark, focus to kindle the ship's lantern, then relax to send the flame to its beacon (uses the alpha rhythm; face movement is ignored)")),
       h("details", { class: "more" }, h("summary", {}, "How the world is made"),
         h("p", { class: "note" }, "Each world is grown from your resting brain signal: when the baseline finishes, its spectrum seeds the land, so no two sessions are the same. Photographs from an open image library give the ground and sky their texture (credits in How it works).")));
   }
@@ -468,7 +480,7 @@ class App {
     const pick = (n: 1 | 2) => h("button", { class: "card-opt", id: `wizS${n}`, "aria-pressed": String(this.wiz.session === n),
       onclick: () => { if (this.protocolActive) return; this.wiz.session = n; store.set("wizSession", n); this.wiz.mainDone = false; this.wiz.mainMsg = ""; this.paintWizard(); } },
       h("b", {}, WIZ_MAIN[n].label), h("span", {}, WIZ_MAIN[n].what), h("span", { class: "meta" }, `about ${WIZ_MAIN[n].minutes} min with setup`));
-    return h("section", { class: "view", tabindex: "0", "data-view": "study", hidden: true },
+    return h("section", { class: "view", tabindex: "0", "data-view": "study", hidden: true }, this.subNav("study"),
       h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "Run a participant session"),
         h("p", {}, "Follow the steps in order. Each step turns green when it's done; the next one unlocks."))),
       h("div", { class: "cols-2" },
@@ -686,7 +698,7 @@ class App {
 
   // ---------------------------------------------------------------- models view
   viewModels(): HTMLElement {
-    return h("section", { class: "view", tabindex: "0", "data-view": "models", hidden: true },
+    return h("section", { class: "view", tabindex: "0", "data-view": "models", hidden: true }, this.subNav("models"),
       h("div", { class: "view-head" }, h("div", {}, title("h1", "Mood decoders", "models"),
         h("p", {}, "A decoder turns brain signals into a mood estimate. Every decoder reads the same 17 scalp regions, so one decoder works with any headset; regions your headset doesn't cover are skipped."))),
       h("div", { class: "cols-2" },
@@ -701,7 +713,7 @@ class App {
 
   // ---------------------------------------------------------------- sessions view
   viewSessions(): HTMLElement {
-    return h("section", { class: "view", tabindex: "0", "data-view": "sessions", hidden: true },
+    return h("section", { class: "view", tabindex: "0", "data-view": "sessions", hidden: true }, this.subNav("sessions"),
       h("div", { class: "view-head" }, h("div", {}, title("h1", "Recordings", "sessions"),
         h("p", {}, "Sessions saved by the Emotif server. Open a report, replay a recording, or download its files (they load straight into train.py).")),
         h("button", { class: "btn", onclick: () => this.refreshSessions() }, "Refresh")),
@@ -718,7 +730,7 @@ class App {
       h("option", { value: "tour" }, "Guided tour: rest, then the four states"),
       h("option", { value: "manual" }, "Manual: drag on the affect map"),
       h("option", { value: "participant" }, "Virtual participant: responds to the world"),
-      h("option", { value: "story" }, "Story: a 3-minute loop (lift and set down the crystal, stress, recovery, joy, drowsiness)"));
+      h("option", { value: "story" }, "Story: a 3-minute voyage through all six states, lighting beacons on the way"));
     const boardSel = h("select", { id: "boardSel" });
     const card = (kind: string, title: string, body: Node[]) =>
       h("div", { class: "card-opt", "data-kind": kind, "aria-current": "false", role: "group", "aria-label": title }, h("b", {}, title), ...body,
@@ -726,7 +738,8 @@ class App {
     const datalist = h("datalist", { id: "electrodeNames" });
     knownNames().filter(n => /^[A-Z]+[0-9Z]+$/.test(n)).sort().forEach(n => datalist.append(h("option", { value: n.replace(/Z$/, "z").replace(/^FP/, "Fp") })));
     return h("section", { class: "view", tabindex: "0", "data-view": "setup", hidden: true },
-      h("div", { class: "view-head" }, h("div", {}, title("h1", "Headset setup"), h("p", {}, "Three steps: choose where the brain signal comes from, check that every sensor touches the skin, then check where each sensor sits."))),
+      h("div", { class: "view-head" }, h("div", {}, title("h1", "Headset setup"), h("p", {}, "Three steps: choose where the brain signal comes from, check that every sensor touches the skin, then check where each sensor sits.")),
+        h("button", { type: "button", class: "btn small", onclick: () => this.go("arm") }, "Robot arm (optional)")),
       h("div", { class: "setup-steps" },
         h("section", { class: "panel step step-wide" }, h("div", { class: "step-h" }, h("span", { class: "step-n", "aria-hidden": "true" }, "1"), title("h2", "Choose where the signal comes from", "Step 1 of 3 · signal source")),
           h("p", { class: "note" }, "Pick your headset and press Use this source. No headset? The simulator makes a realistic practice signal."),
@@ -1167,7 +1180,7 @@ class App {
         $("mindPos").style.width = `${Math.max(0, L) * 50}%`;
         $("mindNeg").style.width = `${Math.max(0, -L) * 50}%`;
         $("mindLabel").textContent = st.held ? "Face activity · holding" : st.command === "focus" ? "Focus" : st.command === "relax" ? "Relax" : "Steady";
-        $("mindHint").textContent = this.world.carrying ? "Relax to set it down" : "Focus to lift the crystal";
+        $("mindHint").textContent = this.world.carrying ? "Relax to light the beacon" : this.world.aiming ? "Focus to kindle the lantern" : "Sailing to the next beacon";
       }
     }
     if (this.checkinAcc && ev.bandPower && !ev.reject) this.checkinAcc.add(ev.bandPower, ev.masked);
@@ -1221,7 +1234,12 @@ class App {
       $("statesText").hidden = !sts.length;
       $("statesText").textContent = sts.length ? "You: " + sts.sort((a, b) => b[1] - a[1]).map(([k, p]) => `${STATE_LABEL[k as keyof typeof STATE_LABEL] ?? k} ${Math.round(p * 100)} %`).join(" · ") : "";
       const top = sts.length ? sts.reduce((a, b) => (b[1] > a[1] ? b : a)) : null;
-      this.world.setBrainState(top && top[1] > 0.45 ? top[0] : null);
+      this.world.setBrainState(top && top[1] > 0.35 ? top[0] : null, !!top);
+      if (top) {   // with a personal-state model the headline is the decoded state, and the chapter it has opened
+        $("word").textContent = STATE_LABEL[top[0] as keyof typeof STATE_LABEL] ?? top[0];
+        $("word").style.color = { calm: "#5fc2b0", stress: "#ef8a5c", anxiety: "#c3c9cf", anger: "#ff6a4a", low_mood: "#8fa6c4", drowsy: "#a9b4ff" }[top[0]] ?? "";
+        $("subText").textContent = `${this.world.realm.title} · Decoder: personal states + ${o.source === "model" ? "model" : "neuro-markers"}`;
+      }
       if (this.link.available) this.link.send({ type: "state", v: o.v, a: o.a, conf: o.conf, quality: ev.quality, hold: !!o.faceHold, extra: { ...(o.extra ?? {}), ...(o.states ?? {}) } });
       this.renderWhy(ev);
     }
@@ -1801,6 +1819,12 @@ class App {
       document.body.classList.remove("demo");
       this.sim.mode = d.prevMode;
       $<HTMLSelectElement>("simMode").value = d.prevMode;
+      this.sim.montage = d.prevMontage; this.sim.seed = d.prevSeed;
+      $<HTMLSelectElement>("simMontage").value = d.prevMontage;
+      this.engine.personalStates = d.prevStates;
+      if (d.prevSource === "sim") this.useSource("sim");   // restart the simulator with the restored headset layout
+      $("statesText").hidden = true; $("statesText").textContent = "";
+      this.world.setBrainState(null);
       this.setSetting("calibSec", d.prevCalib);
       if (d.prevSource !== "sim") this.useSource(d.prevSource);
       if (d.prevModel !== this.modelId) void this.selectModel(d.prevModel);
@@ -1808,14 +1832,20 @@ class App {
     }
     if (this.protocolActive) return;
     if (!$("welcome").hidden) this.showWelcome(false);
-    this.demo = { on: true, t0: 0, prevSource: this.sourceKind, prevMode: this.sim.mode, prevCalib: this.engine.settings.calibSec, prevModel: this.modelId };
+    this.demo = { on: true, t0: 0, prevSource: this.sourceKind, prevMode: this.sim.mode, prevCalib: this.engine.settings.calibSec, prevModel: this.modelId,
+      prevMontage: this.sim.montage, prevSeed: this.sim.seed, prevStates: this.engine.personalStates };
+    // the playthrough: a generated Emotiv Insight stream from a virtual participant, decoded exactly as a headset would
+    // be (brain-only markers for valence/arousal, and that participant's calibrated six-state model)
+    this.sim.montage = "emotiv_insight"; this.sim.seed = 4;
+    $<HTMLSelectElement>("simMontage").value = "emotiv_insight";
+    try { this.engine.personalStates = validateStates(demoStates); } catch { this.engine.personalStates = null; }
     // the simulator's tour is written in neuro-marker terms, so the tour decodes with the markers
     if (this.modelId !== "markers") void this.selectModel("markers");
     this.go("live");
     this.uiDirector.mode = "mirror"; this.director.mode = "mirror"; setSeg("dirMode", "mirror");
     this.engine.settings.calibSec = 20;
-    this.sim.mode = "tour";
-    $<HTMLSelectElement>("simMode").value = "tour";
+    this.sim.mode = "story";
+    $<HTMLSelectElement>("simMode").value = "story";
     this.useSource("sim");
     this.world.clearStrata();
     $("demoCaption").hidden = false;
@@ -1830,14 +1860,9 @@ class App {
       step = "1 · Baseline";
       text = `Measuring a resting baseline (${Math.round(t)} of ${base} s). Emotif learns what this person's signal looks like at rest, then repairs blinks and muscle bursts against it.`;
     } else {
-      const k = Math.floor((t - base) / 25) % 4;
-      const cap = [
-        ["2 · Happy", "More alpha over the right forehead than the left, plus extra beta: pleasant and alert. Colours warm and brighten, petals fly and the explorer speeds up."],
-        ["3 · Calm", "Still pleasant, but beta falls and alpha grows: relaxed. The wind drops, the explorer slows and fireflies drift."],
-        ["4 · Sad", "Alpha shifts to the left forehead: less pleasant. Mist rolls in, colour drains and snow falls."],
-        ["5 · Stressed", "Unpleasant and highly aroused: cool, harsh light, rain and fast motion. In Guide mode the world would now lean toward calm."],
-      ][k];
-      step = cap[0]; text = cap[1];
+      const r = this.world.realm, st = Object.entries(this.engine.last?.states ?? {}).sort((a, b) => b[1] - a[1])[0];
+      step = this.sim.storySegment || r.title;
+      text = `${r.name ? `${r.title}. ${r.line}` : "The open sea."} Decoded from the Insight stream: ${st ? `${STATE_LABEL[st[0] as keyof typeof STATE_LABEL] ?? st[0]} ${Math.round(st[1] * 100)} %` : "reading…"}. Beacons lit: ${this.world.placedCount}.`;
     }
     $("demoStep").textContent = step;
     $("demoText").textContent = text;

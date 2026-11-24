@@ -8,7 +8,8 @@ export const CHUNK = 24;
 export const REGION = 96;   // landmark grid (a multiple of CHUNK)
 export const LANDMARKS = ["temple", "lighthouse", "circle", "arch", "colossus", "shrine", "obelisk"] as const;
 export type LandmarkKind = typeof LANDMARKS[number];
-export type Landmark = { key: string; x: number; z: number; y: number; kind: LandmarkKind; rot: number; size: number; ruined: boolean; name: string; r0: number; r1: number };
+export type Landmark = { key: string; x: number; z: number; y: number; kind: LandmarkKind; rot: number; size: number; ruined: boolean; name: string; r0: number; r1: number;
+  beacon: [number, number, number] };   // where its fire burns (lit by the player)
 const TITLE: Record<LandmarkKind, string> = { temple: "Temple", lighthouse: "Lighthouse", circle: "Stones", arch: "Arch", colossus: "Colossus", shrine: "Shrine", obelisk: "Obelisk" };
 const SYL1 = ["Ae", "Al", "Ar", "Cal", "Cy", "Dor", "Ely", "Eu", "Hel", "Hy", "Ith", "Kor", "Lyr", "Mel", "Myr", "Nax", "Ory", "Pha", "Rho", "Sel", "Tha", "Xan", "Zeph", "Ost"];
 const SYL2 = ["a", "e", "i", "o", "y", "ae", "ei", "ou"];
@@ -145,7 +146,11 @@ export class Terrain {
     const word = nm(5) + (ihash(rx, rz, s + 6) < 0.4 ? SYL2[Math.floor(ihash(rx, rz, s + 7) * SYL2.length)] : "") + SYL3[Math.floor(ihash(rx, rz, s + 8) * SYL3.length)];
     const ruined = ihash(rx, rz, s + 9) < 0.35;
     const title = kind === "temple" && ruined ? "Ruins" : TITLE[kind];
-    return { key: `${rx},${rz}`, x: best.x, z: best.z, y, kind, rot: ihash(rx, rz, s + 10) * Math.PI, size, ruined, name: `${title} of ${word}`, r0: r0 * size, r1: r1 * size };
+    const rot = ihash(rx, rz, s + 10) * Math.PI;
+    const up: Record<LandmarkKind, number> = { temple: 1.1 * size, lighthouse: 0.6 + 15 * size, circle: 1 + 2.5 * size, arch: 14.1 * size, colossus: 20.8 * size, shrine: 0.5 + 1.05 * size, obelisk: 1.2 + 13.4 * size };
+    const off = kind === "temple" ? 10.6 * size : 0;
+    const beacon: [number, number, number] = [best.x + off * Math.cos(rot), y + up[kind], best.z + off * Math.sin(rot)];
+    return { key: `${rx},${rz}`, x: best.x, z: best.z, y, kind, rot, size, ruined, name: `${title} of ${word}`, r0: r0 * size, r1: r1 * size, beacon };
   }
 
   /** Every landmark whose centre is within r of (x, z). */

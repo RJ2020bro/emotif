@@ -66,17 +66,18 @@ export function vaSig(v: number, a: number): Sig {
 /** "story" mode: a scripted journey that loops after the baseline, exercising the world and its brain-controlled objects. */
 export type StorySegment = { label: string; seconds: number; state?: StateName; va?: VA; focus?: number };
 export const STORY: StorySegment[] = [
-  { label: "Calm walk through the world", seconds: 25, state: "calm" },
-  { label: "Focusing to lift the crystal", seconds: 12, va: { v: 0.3, a: 0.3 }, focus: 1 },
-  { label: "Carrying it, steady", seconds: 8, va: { v: 0.3, a: 0.2 } },
-  { label: "Relaxing to set it down", seconds: 12, va: { v: 0.4, a: -0.3 }, focus: -1 },
-  { label: "Stress builds", seconds: 25, state: "stress" },
-  { label: "Recovering with slow breaths", seconds: 25, state: "calm" },
-  { label: "Joy", seconds: 25, va: { v: 0.8, a: 0.6 } },
-  { label: "Focusing to lift it again", seconds: 10, va: { v: 0.6, a: 0.4 }, focus: 1 },
-  { label: "Relaxing to set it down", seconds: 12, va: { v: 0.6, a: -0.2 }, focus: -1 },
-  { label: "Drifting toward sleep", seconds: 20, state: "drowsy" },
-  { label: "Waking up content", seconds: 6, va: { v: 0.5, a: 0 } },
+  { label: "Calm seas", seconds: 24, state: "calm" },
+  { label: "Focus: kindle the lantern", seconds: 10, va: { v: 0.3, a: 0.3 }, focus: 1 },
+  { label: "Relax: light the beacon", seconds: 12, va: { v: 0.4, a: -0.3 }, focus: -1 },
+  { label: "Stress: a storm rises", seconds: 24, state: "stress" },
+  { label: "Anxiety: fog closes in", seconds: 24, state: "anxiety" },
+  { label: "Anger: the forge erupts", seconds: 24, state: "anger" },
+  { label: "Slow breaths: calm returns", seconds: 16, state: "calm" },
+  { label: "Focus: kindle the lantern", seconds: 10, va: { v: 0.5, a: 0.3 }, focus: 1 },
+  { label: "Relax: light the beacon", seconds: 12, va: { v: 0.5, a: -0.2 }, focus: -1 },
+  { label: "Low mood: the grey sea", seconds: 24, state: "low_mood" },
+  { label: "Drowsy: the isle of sleep", seconds: 24, state: "drowsy" },
+  { label: "Waking, content", seconds: 6, va: { v: 0.5, a: 0 } },
 ];
 export const STORY_SECONDS = STORY.reduce((s, x) => s + x.seconds, 0);
 /** Index of the story segment at `t` seconds after the baseline (the story loops). */

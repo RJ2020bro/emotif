@@ -1,6 +1,7 @@
 /* Emotif. Layout: instrument shell (sidebar + status bar) around a live 3-D viewport; dense, quiet panels;
    colour reserved for signal state and affect. Light and dark themes share one token set. */
 :root {
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
   --bg: #eef0ec;
   --surface: #ffffff;
   --surface-2: #f5f6f3;
@@ -357,12 +358,18 @@ body.demo .live-side { opacity: .9; }
 @media (max-width: 900px) { .demo-caption { grid-template-columns: 1fr; } }
 
 /* ---------- method view */
-.pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 18px; counter-reset: st; }
-.stage-box { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 8px; align-content: start; position: relative; }
-.stage-box b { font-size: 17px; }
-.stage-box p { margin: 0; color: var(--ink-2); font-size: 14.5px; line-height: 1.5; }
-.stage-n { font: 700 14px var(--font-sans); color: var(--accent); }
-.stage-stat { font-size: 13.5px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; justify-self: start; }
+.pipeline { display: grid; gap: 0; margin: 0 0 22px; border-top: 1px solid var(--line); counter-reset: st; max-width: 880px; }
+.stage-box { display: grid; grid-template-columns: 56px 1fr auto; column-gap: 18px; row-gap: 2px; align-items: baseline; padding: 16px 4px; border-bottom: 1px solid var(--line); }
+.stage-box b { grid-column: 2; font: 600 19px var(--font-display); letter-spacing: .005em; }
+.stage-box p { grid-column: 2; margin: 2px 0 0; color: var(--ink-2); font-size: 15px; line-height: 1.55; max-width: 60ch; }
+.stage-n { grid-row: 1 / span 2; font: 400 34px/1 var(--font-display); color: var(--muted); }
+.stage-stat { grid-column: 3; grid-row: 1; font: 13.5px var(--font-sans); color: var(--ink-2); white-space: nowrap; }
+@media (max-width: 640px) { .stage-box { grid-template-columns: 40px 1fr; } .stage-stat { grid-column: 2; grid-row: auto; white-space: normal; } .stage-n { font-size: 26px; } }
+.subnav { display: flex; gap: 4px; margin: 0 0 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.subnav-b { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; min-height: 44px; font: 600 15px var(--font-sans); color: var(--ink-2); cursor: pointer; }
+.subnav-b:hover { color: var(--ink); }
+.subnav-b[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.view-head h1, .welcome h2 { font-family: var(--font-display); font-weight: 600; letter-spacing: .005em; }
 .evidence { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); margin-bottom: 16px; }
 .fig { margin: 0; }
 .fig img { width: 100%; height: auto; max-height: 360px; object-fit: contain; border-radius: 8px; background: #fff; }

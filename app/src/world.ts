@@ -338,8 +338,29 @@ export function moodWeather(v: number, a: number): WType {
   return "none";
 }
 
-type Prop = { group: THREE.Group; crystal: THREE.Mesh; halo: THREE.Sprite; color: THREE.Color; state: "rest" | "lifted" | "placed";
-  bloom: number; base: number; spin: number; flowers: THREE.Group | null };
+const REACH = 55;         // how close the explorer must be to a landmark to kindle its beacon
+const MAP_SPAN = 320;     // world units across the chart
+
+/** The six personal states each turn the voyage into a chapter of its own: a realm with its own sky, sea and weather. */
+export type RealmName = "calm" | "stress" | "anxiety" | "anger" | "low_mood" | "drowsy";
+type Realm = { title: string; line: string; sky: string; hor: string; tint: [number, number, number]; sat: number; bright: number;
+  fog: number; cloud: number; storm: number; foam: number; water: string; night: number; weather: WType };
+export const REALMS: Record<RealmName, Realm> = {
+  calm: { title: "The Halcyon Sea", line: "Calm settles. The sea lies glassy and gold.", sky: "#76b2e6", hor: "#ffe0ad", tint: [1.05, 1, 0.92], sat: 1.12, bright: 1.05, fog: 0.8, cloud: 0.12, storm: 0, foam: 0, water: "#1fb5c0", night: 0, weather: "fireflies" },
+  stress: { title: "The Storm of Poseidon", line: "Stress raises the sea. Waves climb and rain sweeps the deck.", sky: "#3b4552", hor: "#878d93", tint: [0.92, 0.96, 1.05], sat: 0.75, bright: 0.85, fog: 1.6, cloud: 0.92, storm: 0.85, foam: 1, water: "#3e4d57", night: 0, weather: "rain" },
+  anxiety: { title: "The Mists of Erebus", line: "Anxiety closes in as fog. The far islands vanish.", sky: "#8d969c", hor: "#c9cdd0", tint: [0.97, 0.98, 1], sat: 0.6, bright: 0.95, fog: 4.5, cloud: 0.6, storm: 0.1, foam: 0.2, water: "#5a6b73", night: 0, weather: "none" },
+  anger: { title: "The Forge of Hephaestus", line: "Anger burns red. Embers drift from the volcanic isles.", sky: "#5a1d12", hor: "#ff7a3d", tint: [1.15, 0.88, 0.78], sat: 1.15, bright: 0.9, fog: 1.3, cloud: 0.55, storm: 0.4, foam: 0.6, water: "#5a2a22", night: 0, weather: "embers" },
+  low_mood: { title: "The Waters of Lethe", line: "Low mood greys the world. Snow falls on dark, still water.", sky: "#4a5260", hor: "#8d949c", tint: [0.9, 0.94, 1.04], sat: 0.45, bright: 0.8, fog: 1.8, cloud: 0.75, storm: 0.1, foam: 0.1, water: "#3b4a55", night: 0, weather: "snow" },
+  drowsy: { title: "The Isle of Hypnos", line: "Drowsiness brings the night. Stars come out and the sea goes quiet.", sky: "#0d1430", hor: "#2b3560", tint: [0.85, 0.9, 1.1], sat: 0.8, bright: 0.62, fog: 1.2, cloud: 0.08, storm: 0, foam: 0, water: "#0f2440", night: 1, weather: "stars" },
+};
+/** Without a calibrated personal-state model, the realm comes from the affect map. */
+export function realmFromVA(v: number, a: number): RealmName | null {
+  if (a <= -0.55) return "drowsy";
+  if (v >= 0.15 && a < 0.45) return "calm";
+  if (v <= -0.2) return a >= 0.55 ? "anger" : a >= 0.1 ? "stress" : "low_mood";
+  if (a >= 0.45 && v < 0.15) return "anxiety";
+  return null;
+}
 
 // ---------------------------------------------------------------- image library (app/assets, embedded at build)
 function blankTexture(): THREE.Texture {
@@ -439,15 +460,31 @@ export class World {
   private halo!: THREE.Sprite;
   // brain-controlled objects (interact.ts): crystals near the path that focus lifts and relaxing sets down
   private dotTex!: THREE.Texture;
-  private props: Prop[] = [];
-  private carried: Prop | null = null;
-  private aim: Prop | null = null;
+  private carried: Landmark | null = null;
+  private aim: Landmark | null = null;
+  private aimKey = "";
+  private aimSince = 0;
   private ring!: THREE.Mesh;
-  private lastSpawnAt = new THREE.Vector3(1e9, 0, 1e9);
+  private lit = new Set<string>();
+  private beacons2 = new Map<string, THREE.Sprite>();
+  private flight: { L: Landmark; from: THREE.Vector3; t: number } | null = null;
+  private spark!: THREE.Sprite;
+  private lanternGlow = 1;
+  private realmName: RealmName | null = null;
+  private realmPending: RealmName | null = null;
+  private realmPendingFor = 0;
+  private realmW = 0;
+  private chapters: { realm: RealmName; title: string; t: number }[] = [];
+  onChapter: ((realm: RealmName, title: string, line: string) => void) | null = null;
+  private mapCanvas: HTMLCanvasElement | null = null;
+  private mapLand: HTMLCanvasElement | null = null;
+  private mapCx = 1e9;
+  private mapCz = 1e9;
+  private mapTick = 0;
   private control: { command: "idle" | "focus" | "relax"; level: number } = { command: "idle", level: 0 };
   interactive = true;
   onInteract: ((type: "lift" | "place", info: { x: number; z: number; t: number; placed: number }) => void) | null = null;
-  get placedCount(): number { return this.props.filter(p => p.state === "placed").length; }
+  get placedCount(): number { return this.lit.size; }
   get carrying(): boolean { return !!this.carried; }
   get aiming(): boolean { return !!this.aim; }
   // voyage: in sea worlds the explorer is a spirit ship whose lantern is the glowing orb; it sails to landmarks
@@ -656,8 +693,11 @@ export class World {
     this.birds.count = 0;
     this.scene.add(this.birds);
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.07, 8, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false }));
-    this.ring.rotation.x = Math.PI / 2;
     this.ring.visible = false;
+    this.spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: new THREE.Color("#ffc46b"), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.spark.scale.set(4, 4, 1);
+    this.spark.visible = false;
+    this.scene.add(this.spark);
     this.scene.add(this.ring);
 
     // beacons: one per second of session, left along the explorer's path
@@ -774,17 +814,17 @@ export class World {
     this.labels.set(L.key, sp);
   }
 
-  private showToast(name: string, n: number) {
+  private showToast(name: string, n: number, kicker = "Discovered", sub = `${n} landmark${n === 1 ? "" : "s"} in the logbook`) {
     if (!this.toast) return;
     this.toast.textContent = "";
     const a = document.createElement("div");
-    a.textContent = "Discovered";
+    a.textContent = kicker;
     a.style.cssText = "font:600 11px system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#ffd58a";
     const b = document.createElement("div");
     b.textContent = name;
     b.style.cssText = "font:600 20px Georgia,'Times New Roman',serif;margin-top:2px";
     const c = document.createElement("div");
-    c.textContent = `${n} landmark${n === 1 ? "" : "s"} in the logbook`;
+    c.textContent = sub;
     c.style.cssText = "font:12px system-ui,sans-serif;opacity:.85;margin-top:2px";
     this.toast.append(a, b, c);
     this.toast.style.opacity = "1";
@@ -856,6 +896,7 @@ export class World {
     // voyage state belongs to one world
     for (const sp of this.labels.values()) { this.scene.remove(sp); (sp.material as THREE.SpriteMaterial).map?.dispose(); sp.material.dispose(); }
     this.labels.clear(); this.found.clear(); this.log = []; this.skip.clear(); this.goal = null;
+    this.mapLand = null; this.chapters = [];
     const sea = this.specV.terrain.islands && this.specV.terrain.water >= 0.45 ? this.terrain.spawnSea(this.pos.x, this.pos.z) : null;
     this.shipMode = !!sea;
     if (this.ship) this.ship.visible = this.shipMode;
@@ -874,7 +915,8 @@ export class World {
   }
   get spec(): WorldSpec { return this.specV; }
   /** The person's dominant calibrated state (or null). It picks the weather and thickens haze or cloud. */
-  setBrainState(name: string | null) { this.brainState = name; }
+  setBrainState(name: string | null, live = name !== null) { this.brainState = name; this.statesLive = live; }
+  private statesLive = false;   // a personal-state model is decoding: the realm follows it alone
   get chunkCount(): number { return this.chunks.size; }
   get viewRadius(): number { return this.radius; }
   get featureCount(): number { let n = 0; for (const c of this.chunks.values()) n += c.features; return n; }
@@ -980,8 +1022,10 @@ export class World {
     const turn = (this.keys.has("l") ? 1 : 0) - (this.keys.has("r") ? 1 : 0);
     let speed = 0;
     if (this.explore) {
-      speed = (2.5 + 9 * ar * m + 2 * (1 - m)) * motion;
-      this.heading += (Math.sin(this.time * 0.13) * 0.5 + Math.sin(this.time * 0.051 + 1.3) * 0.5) * 0.25 * dt;
+      // a steady course: the mind doesn't have to steer. Focus fills the sails; near an unlit beacon the ship heaves to
+      speed = (4.5 + 2.5 * ar * m + (this.control.command === "focus" ? 3 : 0)) * motion;
+      if (this.aim && this.time - this.aimSince < 35) speed *= 0.12;
+      if (!this.goal) this.heading += (Math.sin(this.time * 0.13) * 0.5 + Math.sin(this.time * 0.051 + 1.3) * 0.5) * 0.25 * dt;
       if (!this.specV.terrain.islands) {         // keep to land: steer toward higher ground when the sea is ahead
         const ahead = (a: number) => T.surface(this.pos.x + Math.cos(a) * 14, this.pos.z + Math.sin(a) * 14);
         if (ahead(this.heading) <= T.waterY + 0.01) this.heading += (ahead(this.heading + 0.6) >= ahead(this.heading - 0.6) ? 1 : -1) * 0.9 * dt;
@@ -990,7 +1034,7 @@ export class World {
     if (this.explore && this.goal && !this.keys.size) {   // set a course for the next landmark
       const want = Math.atan2(this.goal.z - this.pos.z, this.goal.x - this.pos.x);
       const d = Math.atan2(Math.sin(want - this.heading), Math.cos(want - this.heading));
-      this.heading += d * Math.min(1, dt * (this.shipMode ? 0.35 : 0.2));
+      this.heading += d * Math.min(1, dt * (this.shipMode ? 0.6 : 0.4));
     }
     const wet = (a: number, r: number) => T.surface(this.pos.x + Math.cos(a) * r, this.pos.z + Math.sin(a) * r) <= T.waterY + 0.05;
     if (this.shipMode && this.explore) {               // a ship keeps to the sea: turn toward open water before the shore
@@ -1035,6 +1079,9 @@ export class World {
       top.lerp(this.skyInfo.top, k); hor.lerp(this.skyInfo.horizon, k);
       if (spec.time === "night") hor.multiplyScalar(0.55);
     }
+    this.updateRealm(dt);
+    const R = this.realmName ? REALMS[this.realmName] : null, rw = R ? this.realmW * (0.4 + 0.6 * m) : 0;
+    if (R) { top.lerp(new THREE.Color(R.sky), 0.75 * rw); hor.lerp(new THREE.Color(R.hor), 0.75 * rw); }
     U.uTop.value.copy(top);
     U.uHorizon.value.copy(hor);
     U.uFogColor.value.copy(hor);
@@ -1071,11 +1118,23 @@ export class World {
     U.uSway.value = (0.25 + 1.6 * ar * m) * motion;
     U.uWave.value = 0.3 + 0.9 * ar + 0.5 * U.uFoam.value;
     // sky: cloud cover follows unpleasantness, storms need unpleasant + aroused; clouds move with arousal
-    const bs = this.brainState;
-    U.uCloud.value = clamp(0.22 + 0.55 * m * neg + 0.12 * m * ar * neg + (bs === "low_mood" || bs === "anger" ? 0.3 * m : 0), 0, 0.95);
-    U.uStorm.value = clamp(m * neg * ar * 1.6 + (bs === "anger" ? 0.6 * m : 0), 0, 1);
-    if (bs === "anxiety") U.uFogDensity.value *= 1 + 0.8 * m;
-    if (bs === "drowsy") U.uBright.value *= 1 - 0.15 * m;
+    U.uCloud.value = clamp(0.22 + 0.55 * m * neg + 0.12 * m * ar * neg, 0, 0.95);
+    U.uStorm.value = clamp(m * neg * ar * 1.6, 0, 1);
+    if (R) {   // the chapter's realm (one of the six states) reshapes light, sky and sea
+      const mixv = (x: number, y: number) => x + (y - x) * rw;
+      U.uTint.value.set(U.uTint.value.x * mixv(1, R.tint[0]), U.uTint.value.y * mixv(1, R.tint[1]), U.uTint.value.z * mixv(1, R.tint[2]));
+      U.uSat.value = mixv(U.uSat.value, R.sat);
+      U.uBright.value *= mixv(1, R.bright);
+      U.uFogDensity.value *= mixv(1, R.fog);
+      U.uCloud.value = mixv(U.uCloud.value, R.cloud);
+      U.uStorm.value = mixv(U.uStorm.value, R.storm);
+      const f0 = U.uFoam.value;
+      U.uFoam.value = mixv(f0, R.foam);
+      U.uWave.value += 0.5 * (U.uFoam.value - f0);
+      U.uWater.value.lerp(new THREE.Color(R.water), 0.8 * rw);
+      U.uNight.value = Math.max(U.uNight.value, R.night * rw);
+      U.uSunColor.value.multiplyScalar(mixv(1, R.bright));
+    }
     this.cloudT += dt * (0.004 + 0.03 * ar) * motion;
     U.uCloudT.value = this.cloudT;
     this.waterTime += dt * (0.4 + 1.2 * ar) * motion;
@@ -1131,6 +1190,7 @@ export class World {
       this.orb.position.y += Math.sin(this.time * 1.4) * 0.25;
     }
     this.updateBirds(va);
+    if (this.mapCanvas && (this.mapTick++ % 6 === 0)) { this.mapCanvas.hidden = this.mode !== "world"; this.drawMap(); }
     if (this.toast && this.toastTimer > 0) {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) { this.toast.style.opacity = "0"; this.toast.style.transform = "translate(-50%, -8px)"; }
@@ -1142,7 +1202,7 @@ export class World {
 
   private updateWeather(dt: number, motion: number, v: number, a: number) {
     const spec = this.specV;
-    let want: WType = spec.weather === "mood" ? (this.brainState && STATE_WEATHER[this.brainState]) || moodWeather(v, a) : spec.weather;
+    let want: WType = spec.weather === "mood" ? (this.realmName ? REALMS[this.realmName].weather : (this.brainState && STATE_WEATHER[this.brainState]) || moodWeather(v, a)) : spec.weather;
     if (spec.weather === "mood") {   // the state must hold for 3 s before the weather changes
       if (want !== this.wPending) { this.wPending = want; this.wPendingFor = 0; }
       this.wPendingFor += dt;
@@ -1185,114 +1245,169 @@ export class World {
   /** Brain command for the objects (from interact.AlphaControl, every decoded window). */
   setControl(command: "idle" | "focus" | "relax", level: number) { this.control = { command, level }; }
 
-  private makeProp(x: number, z: number, seed: number): Prop {
-    const g = new THREE.Group();
-    const hue = (seed % 360) / 360;
-    const col = new THREE.Color().setHSL(hue, 0.55, 0.62);
-    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.75, 0), new THREE.MeshBasicMaterial({ color: col }));
-    crystal.scale.set(0.7, 1.4, 0.7);
-    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dotTex, color: col, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending }));
-    halo.scale.set(3.2, 3.2, 1);
-    g.add(crystal, halo);
-    const y = this.terrain.surface(x, z) + 1.1;
-    g.position.set(x, y, z);
-    this.scene.add(g);
-    return { group: g, crystal, halo, color: col, state: "rest", bloom: 0, base: y, spin: 0.4 + (seed % 7) / 10, flowers: null };
-  }
+  // ---------------------------------------------------------------- beacons (brain-controlled objects)
+  /** Each landmark has a fire. Near an unlit one, focusing (posterior alpha below baseline, interact.ts) kindles the
+   * masthead lantern; relaxing (alpha above baseline) sends the flame across to light the landmark's beacon. */
+  private beaconAt(L: Landmark): THREE.Vector3 { return new THREE.Vector3(L.beacon[0], L.beacon[1], L.beacon[2]); }
 
-  /** Keep a few crystals ahead of the explorer; lift the nearest with focus, set it down with relaxing. A placed
-   * crystal blooms: a ring of flowers grows around it and it stays, so the path keeps what the mind did. */
   private updateProps(dt: number, motion: number) {
-    const T = this.terrain, P = this.pos;
-    if (!this.interactive) { this.ring.visible = false; return; }
-    if (P.distanceTo(this.lastSpawnAt) > 22 && this.props.filter(p => p.state === "rest" && p.group.position.distanceTo(P) < 45).length < 4) {
-      const seed = (Math.floor(P.x * 13.1) * 73856093) ^ (Math.floor(P.z * 7.7) * 19349663) ^ this.specV.seed;
-      for (let k = 0; k < 6; k++) {
-        const a = this.heading + (((seed >>> (k * 3)) & 7) - 3.5) * 0.22, d = 14 + ((seed >>> (k * 5)) & 15);
-        const x = P.x + Math.cos(a) * d, z = P.z + Math.sin(a) * d;
-        if (this.shipMode || T.surface(x, z) > T.waterY + 0.6) { this.props.push(this.makeProp(x, z, Math.abs(seed + k * 101))); break; }
-      }
-      this.lastSpawnAt.copy(P);
-    }
-    // forget far-away crystals that were never touched
-    this.props = this.props.filter(p => {
-      if (p.state === "rest" && p.group.position.distanceTo(P) > 160) { this.scene.remove(p.group); return false; }
-      return true;
-    });
+    const P = this.pos, T = this.terrain;
     const cmd = this.control.command;
-    // target: the nearest untouched crystal within reach, preferring what is ahead
-    let best: Prop | null = null, bd = 1e9;
-    for (const p of this.props) {
-      if (p.state !== "rest") continue;
-      const dx = p.group.position.x - P.x, dz = p.group.position.z - P.z, d = Math.hypot(dx, dz);
-      const ahead = (dx * Math.cos(this.heading) + dz * Math.sin(this.heading)) / Math.max(d, 1e-6);
-      const score = d * (1.4 - 0.4 * ahead);
-      if (d < 18 && score < bd) { bd = score; best = p; }
+    if (!this.interactive) { this.ring.visible = false; this.aim = null; this.carried = null; return; }
+    // target: the nearest unlit landmark within reach
+    let best: Landmark | null = null, bd = 1e9;
+    for (const L of T.landmarksNear(P.x, P.z, REACH)) {
+      if (this.lit.has(L.key)) continue;
+      const d = Math.hypot(L.x - P.x, L.z - P.z);
+      if (d < bd) { bd = d; best = L; }
     }
+    if (this.carried && (this.lit.has(this.carried.key) || Math.hypot(this.carried.x - P.x, this.carried.z - P.z) > REACH * 1.6)) this.carried = null;
     this.aim = this.carried ? null : best;
-    if (!this.carried && this.aim && cmd === "focus") {
+    if (this.aim && this.aim.key !== this.aimKey) { this.aimKey = this.aim.key; this.aimSince = this.time; }
+    if (!this.aim) this.aimKey = "";
+    if (!this.carried && this.aim && cmd === "focus" && !this.flight) {
       this.carried = this.aim;
-      this.carried.state = "lifted";
-      this.onInteract?.("lift", { x: this.carried.group.position.x, z: this.carried.group.position.z, t: this.time, placed: this.placedCount });
+      this.aim = null;
+      this.onInteract?.("lift", { x: this.carried.x, z: this.carried.z, t: this.time, placed: this.placedCount });
     }
-    if (this.carried && cmd === "relax") {
-      const p = this.carried;
-      p.state = "placed";
-      p.base = T.surface(p.group.position.x, p.group.position.z) + 1.1;
+    if (this.carried && cmd === "relax" && !this.flight) {
+      this.flight = { L: this.carried, from: this.orb.position.clone(), t: 0 };
       this.carried = null;
-      this.addFlowers(p);
-      this.onInteract?.("place", { x: p.group.position.x, z: p.group.position.z, t: this.time, placed: this.placedCount });
     }
-    for (const p of this.props) {
-      p.crystal.rotation.y += dt * p.spin * (p.state === "lifted" ? 3 : 1) * motion;
-      if (p.state === "lifted") {      // float beside the explorer; higher the more strongly focused
-        const want = new THREE.Vector3(P.x - Math.sin(this.heading) * 2.6, P.y + 1.4 + 1.2 * clamp(this.control.level, 0, 2), P.z + Math.cos(this.heading) * 2.6);
-        p.group.position.lerp(want, Math.min(1, dt * 3));
-        (p.halo.material as THREE.SpriteMaterial).opacity = 0.85;
-      } else {
-        const bob = p.state === "placed" ? 0.15 * Math.sin(this.time * 1.2 + p.spin * 10) : 0.08 * Math.sin(this.time * 2 + p.spin * 10);
-        p.group.position.y += (p.base + bob - p.group.position.y) * Math.min(1, dt * 4);
-        (p.halo.material as THREE.SpriteMaterial).opacity = p === this.aim ? 0.6 + 0.25 * Math.sin(this.time * 6) : p.state === "placed" ? 0.7 : 0.4;
+    // the flame crossing from the lantern to the beacon
+    const fl = this.flight;
+    if (fl) {
+      fl.t += dt / 1.3;
+      const to = this.beaconAt(fl.L), k = Math.min(1, fl.t);
+      this.spark.visible = true;
+      this.spark.position.lerpVectors(fl.from, to, k);
+      this.spark.position.y += Math.sin(k * Math.PI) * (6 + 0.15 * fl.from.distanceTo(to));
+      if (fl.t >= 1) {
+        this.flight = null;
+        this.spark.visible = false;
+        this.lightBeacon(fl.L);
+        this.onInteract?.("place", { x: fl.L.x, z: fl.L.z, t: this.time, placed: this.placedCount });
       }
-      if (p.flowers && p.bloom < 1) { p.bloom = Math.min(1, p.bloom + dt * 0.5); p.flowers.scale.setScalar(0.05 + 0.95 * p.bloom); }
     }
-    const tg = this.aim;
+    // lantern: brighter while it carries the flame
+    const want = this.carried ? 1.6 : 1;
+    this.lanternGlow += (want - this.lanternGlow) * Math.min(1, dt * 3);
+    this.halo.scale.setScalar(5 * this.lanternGlow);
+    (this.halo.material as THREE.SpriteMaterial).opacity = this.carried ? 0.85 + 0.1 * Math.sin(this.time * 6 * motion) : 0.55;
+    // lit beacons pulse gently
+    for (const b of this.beacons2.values()) {
+      (b.material as THREE.SpriteMaterial).opacity = 0.75 + 0.15 * Math.sin(this.time * 1.7 * motion + b.position.x);
+      const far = Math.hypot(b.position.x - P.x, b.position.z - P.z);
+      b.visible = far < 420;
+    }
+    const tg = this.aim ?? this.carried;
     this.ring.visible = !!tg;
     if (tg) {
-      this.ring.position.set(tg.group.position.x, T.surface(tg.group.position.x, tg.group.position.z) + 0.08, tg.group.position.z);
-      const s = 1 + 0.15 * Math.sin(this.time * 4) + (cmd === "idle" ? clamp(this.control.level, 0, 1) * 0.4 : 0);
+      const g = this.beaconAt(tg);
+      this.ring.position.copy(g).add(new THREE.Vector3(0, 0.2, 0));
+      this.ring.lookAt(this.camera.position);
+      const s = 2.2 + 0.25 * Math.sin(this.time * 4 * motion) + (this.carried ? 0.8 : 0);
       this.ring.scale.set(s, s, s);
-      (this.ring.material as THREE.MeshBasicMaterial).color.copy(tg.color);
+      (this.ring.material as THREE.MeshBasicMaterial).color.set(this.carried ? "#ffb347" : "#fff1c9");
     }
   }
 
-  private addFlowers(p: Prop) {
-    const g = new THREE.Group(), n = 14;
-    const stem = new THREE.CylinderGeometry(0.03, 0.04, 0.7, 5), head = new THREE.IcosahedronGeometry(0.16, 0);
-    for (let k = 0; k < n; k++) {
-      const a = (k / n) * Math.PI * 2, r = 1.6 + 0.5 * Math.sin(k * 2.3);
-      const x = Math.cos(a) * r, z = Math.sin(a) * r, y = this.terrain.surface(p.group.position.x + x, p.group.position.z + z) - p.base + 1.1;
-      const s = new THREE.Mesh(stem, new THREE.MeshBasicMaterial({ color: 0x4d7a35 }));
-      s.position.set(x, y + 0.35 - 1.1, z);
-      const h = new THREE.Mesh(head, new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL((p.spin * 0.7 + k * 0.07) % 1, 0.7, 0.65) }));
-      h.position.set(x, y + 0.72 - 1.1, z);
-      g.add(s, h);
-    }
-    g.scale.setScalar(0.05);
-    p.group.add(g);
-    p.flowers = g;
+  private lightBeacon(L: Landmark) {
+    this.lit.add(L.key);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dotTex, color: new THREE.Color("#ffb347"), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
+    sp.position.copy(this.beaconAt(L));
+    sp.scale.set(16, 16, 1);
+    this.scene.add(sp);
+    this.beacons2.set(L.key, sp);
+    this.showToast(L.name, this.lit.size, "Beacon lit", `${this.lit.size} beacon${this.lit.size === 1 ? "" : "s"} burning`);
   }
 
-  /** Remove every crystal (a new session or a new world). */
+  /** Put out every beacon (a new session or a new world). */
   clearProps() {
-    for (const p of this.props) this.scene.remove(p.group);
-    this.props = []; this.carried = null; this.aim = null; this.lastSpawnAt.set(1e9, 0, 1e9);
+    for (const b of this.beacons2.values()) { this.scene.remove(b); b.material.dispose(); }
+    this.beacons2.clear(); this.lit.clear();
+    this.carried = null; this.aim = null; this.flight = null; this.aimKey = "";
+    if (this.spark) this.spark.visible = false;
+  }
+
+  // ---------------------------------------------------------------- realms: the six states retell the voyage
+  private updateRealm(dt: number) {
+    const want = (this.statesLive ? (this.brainState && REALMS[this.brainState as RealmName] ? this.brainState : this.realmPending)
+      : realmFromVA(this.cur.v, this.cur.a)) as RealmName | null;
+    if (want !== this.realmPending) { this.realmPending = want; this.realmPendingFor = 0; }
+    this.realmPendingFor += dt;
+    if (this.realmPendingFor > 3 && want !== this.realmName) {          // a state must hold 3 s to change the chapter
+      if (this.realmW > 0.02 && this.realmName) this.realmW = Math.max(0, this.realmW - dt * 0.35);
+      else {
+        this.realmName = want;
+        if (want) {
+          const R = REALMS[want];
+          this.chapters.push({ realm: want, title: R.title, t: this.time });
+          this.showToast(R.title, this.chapters.length, `Chapter ${this.chapters.length}`, R.line);
+          this.onChapter?.(want, R.title, R.line);
+        }
+      }
+    } else if (this.realmName) this.realmW = Math.min(1, this.realmW + dt * 0.25);   // slow fade: no flashes
+  }
+  /** The realm (one of the six states) the voyage is in now, and how fully. */
+  get realm(): { name: RealmName | null; title: string; line: string; weight: number } {
+    const R = this.realmName ? REALMS[this.realmName] : null;
+    return { name: this.realmName, title: R?.title ?? "The open sea", line: R?.line ?? "", weight: this.realmW };
+  }
+  get chapterLog(): { realm: RealmName; title: string; t: number }[] { return this.chapters.slice(); }
+
+  // ---------------------------------------------------------------- chart (minimap)
+  private drawMap() {
+    const c = this.mapCanvas, g = c?.getContext("2d");
+    if (!c || !g || !this.terrain) return;
+    const T = this.terrain, P = this.pos, S = MAP_SPAN, W = c.width;
+    if (!this.mapLand || Math.hypot(P.x - this.mapCx, P.z - this.mapCz) > S * 0.22) {   // re-chart the land around us
+      this.mapCx = Math.round(P.x / 24) * 24; this.mapCz = Math.round(P.z / 24) * 24;
+      const N = 72, img = new ImageData(N, N), sea = new THREE.Color(this.specV.palette.water), land = new THREE.Color(this.specV.palette.high), sand = new THREE.Color("#e6d6a4");
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        const x = this.mapCx + (i / N - 0.5) * S * 1.5, z = this.mapCz + (j / N - 0.5) * S * 1.5;
+        const hgt = T.height(x, z), k = (j * N + i) * 4;
+        const col = hgt <= T.waterY + 0.02 ? sea.clone().multiplyScalar(0.75 + 0.25 * clamp(1 + hgt / 8, 0, 1)) : hgt < 1.2 ? sand : land.clone().multiplyScalar(0.8 + 0.5 * clamp(hgt / Math.max(2, this.specV.terrain.height), 0, 1));
+        img.data[k] = col.r * 255; img.data[k + 1] = col.g * 255; img.data[k + 2] = col.b * 255; img.data[k + 3] = 255;
+      }
+      const off = this.mapLand ?? document.createElement("canvas");
+      off.width = off.height = N;
+      off.getContext("2d")!.putImageData(img, 0, 0);
+      this.mapLand = off;
+    }
+    const px = (x: number) => W / 2 + (x - P.x) / S * W, pz = (z: number) => W / 2 + (z - P.z) / S * W;
+    g.save();
+    g.clearRect(0, 0, W, W);
+    g.beginPath(); g.arc(W / 2, W / 2, W / 2 - 2, 0, Math.PI * 2); g.clip();
+    g.imageSmoothingEnabled = true;
+    const span = S * 1.5;
+    g.drawImage(this.mapLand, px(this.mapCx - span / 2), pz(this.mapCz - span / 2), span / S * W, span / S * W);
+    // course to the next landmark
+    const goal = this.goal;
+    if (goal) {
+      g.setLineDash([4, 4]); g.strokeStyle = "rgba(255,255,255,0.9)"; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(W / 2, W / 2); g.lineTo(px(goal.x), pz(goal.z)); g.stroke(); g.setLineDash([]);
+    }
+    for (const L of T.landmarksNear(P.x, P.z, S * 0.75)) {
+      const x = px(L.x), z = pz(L.z), on = this.lit.has(L.key), seen = this.found.has(L.key);
+      g.beginPath(); g.arc(x, z, on ? 5 : 4, 0, Math.PI * 2);
+      g.fillStyle = on ? "#ffb347" : seen ? "#ffffff" : "rgba(255,255,255,0.45)";
+      g.fill(); g.lineWidth = 1.5; g.strokeStyle = "#1b2430"; g.stroke();
+      if (goal && L.key === goal.key) { g.beginPath(); g.arc(x, z, 8, 0, Math.PI * 2); g.strokeStyle = "#ffffff"; g.stroke(); }
+    }
+    // the ship (or explorer): an arrow along the heading
+    g.translate(W / 2, W / 2); g.rotate(this.heading);
+    g.beginPath(); g.moveTo(9, 0); g.lineTo(-6, -5); g.lineTo(-3, 0); g.lineTo(-6, 5); g.closePath();
+    g.fillStyle = "#ffd58a"; g.fill(); g.strokeStyle = "#1b2430"; g.lineWidth = 1.5; g.stroke();
+    g.restore();
+    g.beginPath(); g.arc(W / 2, W / 2, W / 2 - 2, 0, Math.PI * 2); g.lineWidth = 3; g.strokeStyle = "rgba(255,255,255,0.85)"; g.stroke();
+    g.fillStyle = "#ffffff"; g.font = "600 11px system-ui, sans-serif"; g.textAlign = "center"; g.fillText("N", W / 2, 13);
   }
 
   pushStrata(v: number, a: number) {
     if (!this.ok) return;
     const i = this.beaconCount % this.beaconMax;
-    const h = 0.6 + 2.4 * (clamp(a, -1, 1) + 1) / 2;
+    const h = 0.4 + 1.0 * (clamp(a, -1, 1) + 1) / 2;
     const gy = this.terrain.surface(this.pos.x, this.pos.z);
     this.dummy.position.set(this.pos.x, gy + h / 2, this.pos.z);
     this.dummy.scale.set(1, h, 1);
@@ -1450,13 +1565,23 @@ export class World {
       t.className = "world-toast";
       t.setAttribute("role", "status");
       t.setAttribute("aria-live", "polite");
-      t.style.cssText = "position:absolute;left:50%;top:14px;transform:translate(-50%,-8px);opacity:0;transition:opacity .6s,transform .6s;" +
+      t.style.cssText = "position:absolute;left:50%;top:34%;transform:translate(-50%,-8px);opacity:0;transition:opacity .6s,transform .6s;" +
         "pointer-events:none;background:rgba(12,16,24,.82);color:#fff;padding:10px 18px;border-radius:12px;text-align:center;" +
         "border:1px solid rgba(255,213,138,.45);box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:3;max-width:80%";
       this.toast = t;
     }
+    if (!this.mapCanvas) {
+      const m = document.createElement("canvas");
+      m.width = m.height = 300;
+      m.className = "world-map";
+      m.setAttribute("role", "img");
+      m.setAttribute("aria-label", "Chart: the ship, nearby landmarks (gold when their beacon is lit) and the course to the next one");
+      m.style.cssText = "position:absolute;right:14px;top:58px;width:136px;height:136px;border-radius:50%;z-index:2;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.35)";
+      this.mapCanvas = m;
+    }
     if (getComputedStyle(host).position === "static") host.style.position = "relative";
     host.appendChild(this.toast);
+    host.appendChild(this.mapCanvas);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
     this.resize();
