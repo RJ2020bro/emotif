@@ -27,6 +27,8 @@ export class IntentDetector {
   private rmsWin: number[] = []; private rmsWinLen: number;
   private clenchOn = 0; private clenchOff = 0;
   private restSamples: number[] = [];
+  private restMedian = 0;
+  private restFrozen = -1;
 
   constructor(fs: number, channels: string[]) {
     this.fs = fs;
@@ -81,8 +83,12 @@ export class IntentDetector {
     if (this.rmsWin.length > this.rmsWinLen) this.rmsAcc -= this.rmsWin.shift()!;
     const rms = Math.sqrt(Math.max(0, this.rmsAcc) / this.rmsWin.length);
     this.levels.clenchRms = rms;
-    if (this.restSamples.length < this.fs * 60) this.restSamples.push(rms);
-    const rest = this.cal.restRms > 0 ? this.cal.restRms : median(this.restSamples);
+    if (this.restSamples.length < this.fs * 60) {
+      this.restSamples.push(rms);
+      // the median of up to 60 s of samples, refreshed 4x a second (sorting it on every sample cost ~40 ms a batch)
+      if (this.restSamples.length % Math.max(1, Math.round(this.fs / 4)) === 1 || this.restMedian === 0) this.restMedian = median(this.restSamples);
+    } else if (this.restFrozen !== this.restSamples.length) { this.restMedian = median(this.restSamples); this.restFrozen = this.restSamples.length; }
+    const rest = this.cal.restRms > 0 ? this.cal.restRms : this.restMedian;
     const on = rms > rest * this.cal.clenchRatio;
     if (on) { this.clenchOn += dt; this.clenchOff = 0; } else { this.clenchOff += dt; this.clenchOn = 0; }
     if (!this.levels.clenching && this.clenchOn >= 0.15) { this.levels.clenching = true; this.emit("clench_start"); }

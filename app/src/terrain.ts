@@ -10,10 +10,23 @@ export const LANDMARKS = ["temple", "lighthouse", "circle", "arch", "colossus", 
 export type LandmarkKind = typeof LANDMARKS[number];
 export type Landmark = { key: string; x: number; z: number; y: number; kind: LandmarkKind; rot: number; size: number; ruined: boolean; name: string; r0: number; r1: number;
   beacon: [number, number, number] };   // where its fire burns (lit by the player)
-const TITLE: Record<LandmarkKind, string> = { temple: "Temple", lighthouse: "Lighthouse", circle: "Stones", arch: "Arch", colossus: "Colossus", shrine: "Shrine", obelisk: "Obelisk" };
-const SYL1 = ["Ae", "Al", "Ar", "Cal", "Cy", "Dor", "Ely", "Eu", "Hel", "Hy", "Ith", "Kor", "Lyr", "Mel", "Myr", "Nax", "Ory", "Pha", "Rho", "Sel", "Tha", "Xan", "Zeph", "Ost"];
-const SYL2 = ["a", "e", "i", "o", "y", "ae", "ei", "ou"];
-const SYL3 = ["ra", "ne", "ssa", "ros", "lon", "thos", "dra", "mis", "nia", "rix", "ion", "tis", "phos", "lene"];
+// Names follow the Greek world the islands are drawn from: the islands of the Odyssey and the Aegean, and the gods
+// each kind of building was actually raised to (Doric temples to the Olympians, a tholos, Zeus's sacred oak at
+// Dodona, a votive sphinx column like the Naxians' at Delphi, the bronze Colossus of Helios at Rhodes).
+const ISLANDS = ["Ithaca", "Ogygia", "Aeaea", "Scheria", "Thrinacia", "Aeolia", "Delos", "Naxos", "Lemnos", "Kythera", "Rhodes", "Crete", "Samos", "Paros", "Melos", "Thera"];
+const TEMPLE_GODS = ["Poseidon", "Athena", "Apollo", "Hera", "Zeus", "Artemis"];
+const THOLOS_GODS = ["Athena Pronaia", "Hestia", "Asclepius"];
+const landmarkTitle = (kind: LandmarkKind, ruined: boolean, pick: (list: string[]) => string): string => {
+  switch (kind) {
+    case "temple": return `${ruined ? "Ruined temple" : "Temple"} of ${pick(TEMPLE_GODS)}`;
+    case "lighthouse": return "Beacon tower";
+    case "circle": return "Sacred oak of Zeus";
+    case "arch": return "Sea arch";
+    case "colossus": return "Colossus of Helios";
+    case "shrine": return `Tholos of ${pick(THOLOS_GODS)}`;
+    case "obelisk": return "Sphinx column of Apollo";
+  }
+};
 export const KIND = { ground: 0, sway: 1, glow: 2, bloom: 3, plain: 4, grass: 5, leaf: 6, bark: 7, stone: 8 } as const;
 export const WATER_Y = { voxel: -0.12, field: 0 };
 
@@ -142,15 +155,14 @@ export class Terrain {
     const R: Record<LandmarkKind, [number, number]> = { temple: [11, 17], lighthouse: [5, 9], circle: [9, 13], arch: [0, 0], colossus: [6, 10], shrine: [6, 10], obelisk: [4, 7] };
     const [r0, r1] = R[kind];
     const y = this.voxel ? Math.round(best.y) : Math.max(1.2, best.y);
-    const nm = (k: number) => SYL1[Math.floor(ihash(rx, rz, s + k) * SYL1.length)];
-    const word = nm(5) + (ihash(rx, rz, s + 6) < 0.4 ? SYL2[Math.floor(ihash(rx, rz, s + 7) * SYL2.length)] : "") + SYL3[Math.floor(ihash(rx, rz, s + 8) * SYL3.length)];
+    const island = ISLANDS[Math.floor(ihash(rx, rz, s + 5) * ISLANDS.length)];
     const ruined = ihash(rx, rz, s + 9) < 0.35;
-    const title = kind === "temple" && ruined ? "Ruins" : TITLE[kind];
+    const title = landmarkTitle(kind, ruined, list => list[Math.floor(ihash(rx, rz, s + 8) * list.length)]);
     const rot = ihash(rx, rz, s + 10) * Math.PI;
-    const up: Record<LandmarkKind, number> = { temple: 1.1 * size, lighthouse: 0.6 + 15 * size, circle: 1 + 2.5 * size, arch: 14.1 * size, colossus: 20.8 * size, shrine: 0.5 + 1.05 * size, obelisk: 1.2 + 13.4 * size };
+    const up: Record<LandmarkKind, number> = { temple: 1.1 * size, lighthouse: 0.6 + 15 * size, circle: 2.2 + 0.2 * size, arch: 14.1 * size, colossus: 20.8 * size, shrine: 0.5 + 1.05 * size, obelisk: 1.2 + 11.9 * size };
     const off = kind === "temple" ? 10.6 * size : 0;
     const beacon: [number, number, number] = [best.x + off * Math.cos(rot), y + up[kind], best.z + off * Math.sin(rot)];
-    return { key: `${rx},${rz}`, x: best.x, z: best.z, y, kind, rot, size, ruined, name: `${title} of ${word}`, r0: r0 * size, r1: r1 * size, beacon };
+    return { key: `${rx},${rz}`, x: best.x, z: best.z, y, kind, rot, size, ruined, name: `${title}, ${island}`, r0: r0 * size, r1: r1 * size, beacon };
   }
 
   /** Every landmark whose centre is within r of (x, z). */
@@ -787,22 +799,30 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
       mb.cone(x, yy + 2.5 * S, z, 1.7 * S, 0, 1.8 * S, 10, rot, [0.25, 0.27, 0.3], K.plain, y, false);
       break;
     }
-    case "circle": {
-      const n = 11;
+    case "circle": {   // sanctuary of Zeus at Dodona: the sacred oak, a low enclosure wall, bronze tripod-cauldrons, an altar
+      const n = 26;
       for (let k = 0; k < n; k++) {
-        const a = (k / n) * Math.PI * 2, px = x + Math.cos(a) * 7 * S, pz = z + Math.sin(a) * 7 * S, q = r(k);
-        if (L.ruined && q < 0.3) { mb.obox(px, y - 0.2, pz, 2.1 * S, 0.9 * S, 0.7 * S, a + 0.5, MEGALITH, K.stone, y); continue; }
-        mb.obox(px, y - 1, pz, 0.55 * S, (4.2 + 1.6 * q) * S, 0.95 * S, a, MEGALITH, K.stone, y);
-        if (k % 2 === 0 && k + 1 < n && !(L.ruined && r(k + 1) < 0.3)) {
-          const a2 = a + Math.PI / n, lx = x + Math.cos(a2) * 7 * S, lz = z + Math.sin(a2) * 7 * S;
-          mb.obox(lx, y + (3.2 + 1.6 * Math.min(q, r(k + 1))) * S, lz, 0.6 * S, 0.7 * S, 2.6 * S, a2, MEGALITH, K.stone, y);
+        if (k === 0 || k === 1) continue;                                   // the gateway
+        if (L.ruined && r(k) < 0.25) continue;
+        const a = rot + (k / n) * Math.PI * 2, px = x + Math.cos(a) * 8 * S, pz = z + Math.sin(a) * 8 * S;
+        mb.obox(px, y - 0.6, pz, 0.45, 1.5, 1.05 * S, a, MARBLE_D, K.stone, y);
+      }
+      const ox = x - Math.cos(rot) * 2.6 * S, oz = z - Math.sin(rot) * 2.6 * S, OAK: RGB = [0.27, 0.42, 0.2], BARK: RGB = [0.32, 0.25, 0.18];
+      mb.cone(ox, y - 0.3, oz, 0.95 * S, 0.6 * S, 6.5 * S, 9, 0, BARK, K.bark, y, true);
+      for (let k = 0; k < 6; k++) {
+        const a = k * 1.05 + r(20 + k), d = (k ? 2.6 : 0) * S, rr = (k ? 2.6 : 3.4) * S;
+        mb.blob(ox + Math.cos(a) * d, y + (6.2 + (k ? r(30 + k) * 1.6 : 1.4)) * S, oz + Math.sin(a) * d, rr, rr * 0.72, rr, OAK, K.plain, y, true, sd + k);
+      }
+      for (let k = 0; k < 4; k++) {                                           // tripods with cauldrons
+        const a = rot + 0.6 + k * (Math.PI / 2), px = x + Math.cos(a) * 5.6 * S, pz = z + Math.sin(a) * 5.6 * S;
+        for (let l = 0; l < 3; l++) {
+          const b = l * 2.094, lx = px + Math.cos(b) * 0.35, lz = pz + Math.sin(b) * 0.35;
+          mb.obox(lx, y, lz, 0.06, 1.4, 0.06, b, BRONZE, K.stone, y);
         }
+        mb.blob(px, y + 1.55, pz, 0.55, 0.32, 0.55, BRONZE, K.stone, y, true, sd + 40 + k, false);
       }
-      mb.obox(x, y - 0.5, z, 1.5 * S, 1.6, 1 * S, rot, MEGALITH, K.stone, y);
-      for (let k = 0; k < 3; k++) {
-        const a = rot + k * 2.1, d = k ? 0.4 * S : 0;
-        mb.cone(x + Math.cos(a) * d, y + 1, z + Math.sin(a) * d, (0.45 - 0.1 * k) * S, 0, (2.4 - 0.5 * k) * S, 5, a, T.colors().crystal, K.glow, y, false);
-      }
+      mb.obox(x, y - 0.4, z, 1.3 * S, 1.6, 0.9 * S, rot, MARBLE, K.stone, y);   // the altar, with its fire
+      flame(x, y + 1.2, z, 1);
       break;
     }
     case "arch": {
@@ -847,11 +867,15 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
       flame(x, fl, z, 1.1 * S);
       break;
     }
-    case "obelisk": {
-      mb.obox(x, y - 1, z, 2.2 * S, 1.6, 2.2 * S, rot, MARBLE_D, K.stone, y);
-      mb.obox(x, y + 0.6, z, 1.6 * S, 0.6, 1.6 * S, rot, MARBLE_D, K.stone, y);
-      mb.cone(x, y + 1.2, z, 1.05 * S, 0.68 * S, 12 * S, 4, rot + Math.PI / 4, MARBLE, K.stone, y, false);
-      mb.cone(x, y + 1.2 + 12 * S, z, 0.68 * S, 0, 1.4 * S, 4, rot + Math.PI / 4, GOLD, K.glow, y, false);
+    case "obelisk": {   // a votive column crowned by a sphinx, as the Naxians dedicated at Delphi
+      mb.obox(x, y - 1, z, 2.1 * S, 1.6, 2.1 * S, rot, MARBLE_D, K.stone, y);
+      mb.obox(x, y + 0.6, z, 1.5 * S, 0.6, 1.5 * S, rot, MARBLE_D, K.stone, y);
+      mb.cone(x, y + 1.2, z, 0.72 * S, 0.6 * S, 10 * S, 14, rot, MARBLE, K.stone, y, true);
+      mb.obox(x, y + 1.2 + 10 * S, z, 1.25 * S, 0.45 * S, 0.8 * S, rot, MARBLE, K.stone, y);   // Ionic capital
+      const top = y + 1.2 + 10.45 * S, fx = Math.cos(rot), fz = Math.sin(rot);
+      mb.blob(x - fx * 0.2 * S, top + 0.55 * S, z - fz * 0.2 * S, 0.95 * S, 0.55 * S, 0.45 * S, GOLD, K.glow, y, true, sd);   // body
+      mb.blob(x + fx * 0.65 * S, top + 1.15 * S, z + fz * 0.65 * S, 0.32 * S, 0.42 * S, 0.3 * S, GOLD, K.glow, y, true, sd + 1);   // head
+      mb.tri([x - fx * 0.1 * S, top + 0.9 * S, z - fz * 0.1 * S], [x - fx * 0.9 * S, top + 0.7 * S, z - fz * 0.9 * S], [x - fx * 0.6 * S, top + 1.8 * S, z - fz * 0.6 * S], null, GOLD, K.glow, y, [x + fz, top, z - fx]);   // wing
       break;
     }
   }

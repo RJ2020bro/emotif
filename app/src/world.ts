@@ -32,6 +32,9 @@ const GRADE = /* glsl */`
 uniform vec3 uFogColor; uniform float uFogDensity; uniform vec3 uTint; uniform float uSat; uniform float uBright;
 vec3 grade(vec3 c) { float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); return max(mix(vec3(l), c, uSat) * uTint * uBright, 0.0); }
 float fogF(vec3 wp) { float d = length(wp - cameraPosition) * uFogDensity; return clamp(1.0 - exp(-d * d), 0.0, 1.0); }
+uniform float uFar;   // land fades into the haze before the edge of the loaded world, so no chunk edge ever shows
+uniform float uSink;
+float farF(vec3 wp) { return (1.0 - uSink) * smoothstep(uFar * 0.6, uFar, length(wp.xz - cameraPosition.xz)); }
 float h13(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
 float h12(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -49,7 +52,7 @@ float airF(vec3 wp) { float f = fogF(wp); return f * mix(1.0, exp(-max(wp.y, 0.0
 `;
 const CHUNK_VS = /* glsl */`
 attribute vec3 aColor; attribute vec2 aExtra; attribute vec2 aUv;
-uniform float uTime, uSway;
+uniform float uTime, uSway, uFar, uSink;
 varying vec3 vColor; varying vec3 vNormal; varying vec3 vWorld; varying float vKind; varying float vLift; varying vec2 vUv;
 varying float vM1;
 float h12v(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
@@ -79,6 +82,8 @@ void main() {
     vLift = lift * fade;
   }
   vec4 w = modelMatrix * vec4(p, 1.0);
+  // at sea, distant islands sink below the horizon (like the curve of the Earth) before the loaded world ends
+  w.y -= uSink * 40.0 * smoothstep(uFar * 0.62, uFar, length(w.xz - cameraPosition.xz));
   vWorld = w.xyz; vNormal = normal; vColor = aColor; vKind = aExtra.x;
   gl_Position = projectionMatrix * viewMatrix * w;
 }`;
@@ -165,7 +170,7 @@ void main() {
   if (uNatural > 0.5 && kind != 2.0 && kind != 3.0) {
     float alpha;
     vec3 c = naturalShade(n, kind, alpha);
-    c = mix(c, airColor(vWorld, uFogColor, uSunDir, uSunColor), airF(vWorld));
+    c = mix(c, airColor(vWorld, uFogColor, uSunDir, uSunColor), max(airF(vWorld), farF(vWorld)));
     gl_FragColor = vec4(aces(grade(c) * 1.05), alpha);
     #include <colorspace_fragment>
     return;
@@ -197,7 +202,7 @@ void main() {
     float rim = pow(1.0 - abs(dot(n, normalize(cameraPosition - vWorld))), 3.0);
     col = col * 0.6 + uAccent * (max(line, cl) * 0.95 + rim * 0.3);
   }
-  gl_FragColor = vec4(grade(mix(col, uFogColor, fogF(vWorld))), 1.0);
+  gl_FragColor = vec4(grade(mix(col, uFogColor, max(fogF(vWorld), farF(vWorld)))), 1.0);
   #include <colorspace_fragment>
 }`;
 const WATER_VS = /* glsl */`
@@ -214,12 +219,14 @@ void main() {
   vec2 p = vWorld.xz; float t = uWaterTime;
   if (uNatural > 0.5) {
     vec2 d = vec2(0.0);
-    for (int i = 0; i < 5; i++) {               // sum of travelling waves in five directions, longest first
+    float dist = length(vWorld - cameraPosition);
+    for (int i = 0; i < 4; i++) {               // sum of travelling waves in four directions, longest first
       float fi = float(i), a = fi * 2.39996 + 0.4, k = 0.18 * pow(1.7, fi), amp = 0.5 / pow(1.9, fi);
       vec2 dir = vec2(cos(a), sin(a));
       d += dir * cos(dot(dir, p) * k + t * (1.2 + 0.35 * fi)) * k * amp;
     }
     d += (vec2(vn(p * 1.7 + t * 0.6), vn(p * 1.7 - t * 0.5 + 9.0)) - 0.5) * 0.35;
+    d *= 1.0 - 0.85 * smoothstep(40.0, 320.0, dist);   // calm the far sea: small ripples there only shimmer (aliasing)
     vec3 n = normalize(vec3(-d.x * uWave, 1.0, -d.y * uWave));
     vec3 v = normalize(cameraPosition - vWorld);
     vec3 r = reflect(-v, n);
@@ -227,8 +234,10 @@ void main() {
     float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
     float spec = pow(max(dot(r, uSunDir), 0.0), 220.0) * 3.0 + pow(max(dot(r, uSunDir), 0.0), 24.0) * 0.12;
     vec3 col = mix(uWater * 0.22, refl, fres) + uSunColor * spec;
-    float crest = smoothstep(0.62, 0.9, vn(p * 0.9 + vec2(t * 0.7, -t * 0.4)) * 0.6 + length(d) * 0.9);
-    col += vec3(0.85) * crest * uFoam * 0.35 * (1.0 - fres);      // whitecaps: stormy (aroused, unpleasant) seas
+    if (uFoam > 0.01) {
+      float crest = smoothstep(0.62, 0.9, vn(p * 0.9 + vec2(t * 0.7, -t * 0.4)) * 0.6 + length(d) * 0.9);
+      col += vec3(0.85) * crest * uFoam * 0.35 * (1.0 - fres);
+    }      // whitecaps: stormy (aroused, unpleasant) seas
     col = mix(col, airColor(vWorld, uFogColor, uSunDir, uSunColor), airF(vWorld));
     gl_FragColor = vec4(aces(grade(col) * 1.05), 0.94);
     #include <colorspace_fragment>
@@ -447,7 +456,7 @@ export class World {
     uWater: { value: new THREE.Color() }, uSky: { value: new THREE.Color() },
     uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uNight: { value: 0 },
     uNatural: { value: 1 }, uSnow: { value: 1e4 }, uCloud: { value: 0.3 }, uCloudT: { value: 0 }, uStorm: { value: 0 },
-    uSkyRot: { value: 0 }, uSkyOn: { value: 0 }, uWaterY: { value: 0 }, uFoam: { value: 0 },
+    uSkyRot: { value: 0 }, uSkyOn: { value: 0 }, uWaterY: { value: 0 }, uFoam: { value: 0 }, uFar: { value: 60 }, uSink: { value: 0 },
     tGrass: { value: blankTexture() }, tGrassN: { value: flatNormal() }, tRock: { value: blankTexture() }, tRockN: { value: flatNormal() },
     tDirt: { value: blankTexture() }, tSand: { value: blankTexture() }, tBark: { value: blankTexture() }, tLeaves: { value: blankTexture() },
     tSky: { value: blankTexture() },
@@ -486,6 +495,8 @@ export class World {
   private mapCx = 1e9;
   private mapCz = 1e9;
   private mapTick = 0;
+  private camFloor = 0;
+  private mapJob: { cx: number; cz: number; row: number; img: ImageData } | null = null;
   private control: { command: "idle" | "focus" | "relax"; level: number } = { command: "idle", level: 0 };
   interactive = true;
   onInteract: ((type: "lift" | "place", info: { x: number; z: number; t: number; placed: number }) => void) | null = null;
@@ -514,6 +525,8 @@ export class World {
   /** The landmark the explorer is heading for, if any. */
   get goalName(): string | null { return this.goal?.name ?? null; }
   get sailing(): boolean { return this.shipMode; }
+  /** Name of the landmark whose beacon is in reach (or whose flame the lantern carries). */
+  get targetName(): string | null { return (this.carried ?? this.aim)?.name ?? null; }
   private beacons!: THREE.InstancedMesh;
   private beaconCount = 0;
   private readonly beaconMax = 1800;
@@ -794,7 +807,7 @@ export class World {
     for (const [k, sp] of this.labels) {
       const d = Math.hypot(sp.position.x - P.x, sp.position.z - P.z);
       if (d > 260) { this.scene.remove(sp); (sp.material as THREE.SpriteMaterial).map?.dispose(); sp.material.dispose(); this.labels.delete(k); continue; }
-      (sp.material as THREE.SpriteMaterial).opacity = clamp(1.4 - d / 140, 0, 0.95);
+      (sp.material as THREE.SpriteMaterial).opacity = clamp(1.4 - d / 140, 0, 0.95) * clamp((d - 30) / 30, 0, 1);   // fades out up close
     }
     void dt;
   }
@@ -813,7 +826,7 @@ export class World {
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
-    sp.scale.set(24, 4.5, 1);
+    sp.scale.set(17, 3.2, 1);
     sp.position.set(L.x, L.y + 22 * L.size, L.z);
     this.scene.add(sp);
     this.labels.set(L.key, sp);
@@ -834,7 +847,7 @@ export class World {
     this.toast.append(a, b, c);
     this.toast.style.opacity = "1";
     this.toast.style.transform = "translate(-50%, 0)";
-    this.toastTimer = 5;
+    this.toastTimer = 3.5;
   }
 
   /** Seabirds circle the explorer: a flock when the state is pleasant, a few when it is not, almost none at night. */
@@ -901,7 +914,7 @@ export class World {
     // voyage state belongs to one world
     for (const sp of this.labels.values()) { this.scene.remove(sp); (sp.material as THREE.SpriteMaterial).map?.dispose(); sp.material.dispose(); }
     this.labels.clear(); this.found.clear(); this.log = []; this.skip.clear(); this.goal = null;
-    this.mapLand = null; this.chapters = [];
+    this.mapLand = null; this.mapJob = null; this.chapters = [];
     const sea = this.specV.terrain.islands && this.specV.terrain.water >= 0.45 ? (this.terrain.spawnSea(this.pos.x, this.pos.z, 26) ?? this.terrain.spawnSea(this.pos.x, this.pos.z)) : null;
     this.shipMode = !!sea;
     if (this.ship) this.ship.visible = this.shipMode;
@@ -1150,6 +1163,8 @@ export class World {
     g.setRGB((l + (g.r - l) * s) * tint.x * b, (l + (g.g - l) * s) * tint.y * b, (l + (g.b - l) * s) * tint.z * b);
     (this.scene.fog as THREE.FogExp2).color.copy(g);
     (this.scene.fog as THREE.FogExp2).density = U.uFogDensity.value;
+    U.uFar.value = (this.radius + 0.35) * CHUNK;
+    U.uSink.value = this.shipMode ? 1 : 0;
 
     this.hemi.color.copy(U.uAmbSky.value).multiplyScalar(1.6);
     this.hemi.groundColor.copy(U.uAmbGround.value).multiplyScalar(1.6);
@@ -1171,13 +1186,16 @@ export class World {
       off.x = Math.cos(az + rot) * r; off.z = Math.sin(az + rot) * r;
       this.camera.position.copy(this.pos).add(off);
     }
-    const floor = this.terrain.surface(this.camera.position.x, this.camera.position.z) + 1.5;
-    if (this.camera.position.y < floor) this.camera.position.y = floor;
+    // never inside trees or buildings: over land at sea the camera keeps above the canopy
+    const gnd = this.terrain.surface(this.camera.position.x, this.camera.position.z);
+    const floor = gnd + (this.shipMode && gnd > this.terrain.waterY + 0.3 ? 17 : 1.5);
+    this.camFloor = floor > this.camFloor ? this.camFloor + (floor - this.camFloor) * Math.min(1, dt * 4) : floor;   // rise smoothly at the coast
+    if (this.camera.position.y < this.camFloor) this.camera.position.y = this.camFloor;
     if (this.mode === "world") {   // keep the explorer in sight: rise over any hill between the camera and it
       const t = this.controls.target, c = this.camera.position;
       let need = -Infinity;
       for (let k = 1; k <= 8; k++) {
-        const f = k / 9, g = this.terrain.surface(t.x + (c.x - t.x) * f, t.z + (c.z - t.z) * f) + 1.2;
+        const f = k / 9, gs = this.terrain.surface(t.x + (c.x - t.x) * f, t.z + (c.z - t.z) * f), g = gs + (this.shipMode && gs > this.terrain.waterY + 0.3 ? 14 : 1.2);
         need = Math.max(need, t.y + (g - t.y) / f);
       }
       need = Math.min(need, t.y + 70);
@@ -1376,20 +1394,33 @@ export class World {
     const c = this.mapCanvas, g = c?.getContext("2d");
     if (!c || !g || !this.terrain) return;
     const T = this.terrain, P = this.pos, S = MAP_SPAN, W = c.width;
-    if (!this.mapLand || Math.hypot(P.x - this.mapCx, P.z - this.mapCz) > S * 0.22) {   // re-chart the land around us
-      this.mapCx = Math.round(P.x / 24) * 24; this.mapCz = Math.round(P.z / 24) * 24;
-      const N = 72, img = new ImageData(N, N), sea = new THREE.Color(this.specV.palette.water), land = new THREE.Color(this.specV.palette.high), sand = new THREE.Color("#e6d6a4");
-      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-        const x = this.mapCx + (i / N - 0.5) * S * 1.5, z = this.mapCz + (j / N - 0.5) * S * 1.5;
-        const hgt = T.height(x, z), k = (j * N + i) * 4;
-        const col = hgt <= T.waterY + 0.02 ? sea.clone().multiplyScalar(0.75 + 0.25 * clamp(1 + hgt / 8, 0, 1)) : hgt < 1.2 ? sand : land.clone().multiplyScalar(0.8 + 0.5 * clamp(hgt / Math.max(2, this.specV.terrain.height), 0, 1));
-        img.data[k] = col.r * 255; img.data[k + 1] = col.g * 255; img.data[k + 2] = col.b * 255; img.data[k + 3] = 255;
-      }
-      const off = this.mapLand ?? document.createElement("canvas");
-      off.width = off.height = N;
-      off.getContext("2d")!.putImageData(img, 0, 0);
-      this.mapLand = off;
+    // re-chart the land around the ship a few rows at a time (one full chart in one frame would stutter)
+    if (!this.mapJob && (!this.mapLand || Math.hypot(P.x - this.mapCx, P.z - this.mapCz) > S * 0.22)) {
+      const N = 72;
+      this.mapJob = { cx: Math.round(P.x / 24) * 24, cz: Math.round(P.z / 24) * 24, row: 0, img: new ImageData(N, N) };
     }
+    const job = this.mapJob;
+    if (job) {
+      const N = 72, sea = new THREE.Color(this.specV.palette.water), land = new THREE.Color(this.specV.palette.high), sand = new THREE.Color("#e6d6a4"), col = new THREE.Color();
+      for (const end = Math.min(N, job.row + (this.mapLand ? 6 : N)); job.row < end; job.row++) {
+        const j = job.row;
+        for (let i = 0; i < N; i++) {
+          const x = job.cx + (i / N - 0.5) * S * 1.5, z = job.cz + (j / N - 0.5) * S * 1.5;
+          const hgt = T.height(x, z), k = (j * N + i) * 4;
+          if (hgt <= T.waterY + 0.02) col.copy(sea).multiplyScalar(0.75 + 0.25 * clamp(1 + hgt / 8, 0, 1));
+          else if (hgt < 1.2) col.copy(sand);
+          else col.copy(land).multiplyScalar(0.8 + 0.5 * clamp(hgt / Math.max(2, this.specV.terrain.height), 0, 1));
+          job.img.data[k] = col.r * 255; job.img.data[k + 1] = col.g * 255; job.img.data[k + 2] = col.b * 255; job.img.data[k + 3] = 255;
+        }
+      }
+      if (job.row >= N) {
+        const off = this.mapLand ?? document.createElement("canvas");
+        off.width = off.height = N;
+        off.getContext("2d")!.putImageData(job.img, 0, 0);
+        this.mapLand = off; this.mapCx = job.cx; this.mapCz = job.cz; this.mapJob = null;
+      }
+    }
+    if (!this.mapLand) return;
     const px = (x: number) => W / 2 + (x - P.x) / S * W, pz = (z: number) => W / 2 + (z - P.z) / S * W;
     g.save();
     g.clearRect(0, 0, W, W);
@@ -1581,7 +1612,7 @@ export class World {
       t.className = "world-toast";
       t.setAttribute("role", "status");
       t.setAttribute("aria-live", "polite");
-      t.style.cssText = "position:absolute;left:50%;top:34%;transform:translate(-50%,-8px);opacity:0;transition:opacity .6s,transform .6s;" +
+      t.style.cssText = "position:absolute;left:50%;top:12px;transform:translate(-50%,-8px);opacity:0;transition:opacity .6s,transform .6s;" +
         "pointer-events:none;background:rgba(12,16,24,.82);color:#fff;padding:10px 18px;border-radius:12px;text-align:center;" +
         "border:1px solid rgba(255,213,138,.45);box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:3;max-width:80%";
       this.toast = t;

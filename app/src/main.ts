@@ -337,7 +337,7 @@ class App {
         h("button", { class: "btn small ghost", type: "button", onclick: () => this.showWelcome(false) }, "Close")),
       h("p", {}, "Emotif reads brain signals (EEG), estimates the mood behind them and turns that mood into a 3-D world. How do you want to begin?"),
       h("div", { class: "welcome-choices" },
-        choice("demo", "live", "Try it with the demo signal", "A simulated brain moves through four moods and the world changes with it. No headset needed."),
+        choice("demo", "live", "Try it with the demo signal", "A generated Emotiv Insight stream sails through all six states, each opening a new chapter of the voyage. No headset needed."),
         choice("headset", "setup", "Connect my headset", "Pick your headset (Muse, Emotiv, OpenBCI and more) and check that every sensor touches the skin."),
         choice("study", "study", "Run a participant session", "Step-by-step guide for a study session: consent, headset fit, tasks and ratings.")),
       h("p", { class: "welcome-foot" }, "You can open this panel again with Start here at the top."));
@@ -368,7 +368,7 @@ class App {
             h("span", { class: "sub", id: "subText" }, "")),
           h("div", { class: "mind-hud", id: "mindHud", hidden: true, role: "status" },
             h("span", { class: "mind-label", id: "mindLabel" }, "Relax"),
-            h("div", { class: "mind-bar" }, h("i", { id: "mindNeg" }), h("i", { id: "mindPos" })),
+            h("div", { class: "mind-bar", title: "Your focus level. Cross a marker and hold for a second to act." }, h("i", { id: "mindNeg" }), h("i", { id: "mindPos" }), h("b", { class: "tick neg" }), h("b", { class: "tick pos" })),
             h("span", { class: "mind-hint", id: "mindHint" }, "Focus to lift · relax to place")),
           h("div", { class: "stage-tools" },
             h("button", { class: "btn small", onclick: () => { this.world.focusArm(false); this.world.resumeAutoRotate(); } }, "Recentre"),
@@ -1189,7 +1189,10 @@ class App {
         $("mindPos").style.width = `${Math.max(0, L) * 50}%`;
         $("mindNeg").style.width = `${Math.max(0, -L) * 50}%`;
         $("mindLabel").textContent = st.held ? "Face activity · holding" : st.command === "focus" ? "Focus" : st.command === "relax" ? "Relax" : "Steady";
-        $("mindHint").textContent = this.world.carrying ? "Relax to light the beacon" : this.world.aiming ? "Focus to kindle the lantern" : "Sailing to the next beacon";
+        const task = this.world.carrying || this.world.aiming, tn = this.world.targetName;
+        hud.classList.toggle("task", task);
+        $("mindHint").textContent = this.world.carrying ? `Now relax: breathe out slowly to light ${tn ?? "the beacon"}`
+          : this.world.aiming ? `Focus to kindle the lantern for ${tn ?? "this beacon"}` : `Sailing on${this.world.goalName ? ` to ${this.world.goalName}` : ""}`;
       }
     }
     if (this.checkinAcc && ev.bandPower && !ev.reject) this.checkinAcc.add(ev.bandPower, ev.masked);

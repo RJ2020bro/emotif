@@ -394,7 +394,15 @@ body.demo .live-side { opacity: .9; }
 .cmp-legend .sw { display: inline-block; width: 20px; height: 0; border-top: 3px solid var(--accent); }
 .cmp-legend .sw.dash { border-top: 3px dashed var(--ink-2); }
 
-.mind-hud { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--surface) 90%, transparent); border: 1px solid var(--line-strong); font: 500 15px var(--font-sans); color: var(--ink); z-index: 3; }
+.mind-hud { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 999px; background: rgba(10, 13, 18, .62); border: 1px solid rgba(255, 255, 255, .16); font: 500 13.5px var(--font-sans); color: #eef2f5; z-index: 3; backdrop-filter: blur(6px); max-width: calc(100% - 180px); }
+.mind-hud .mind-hint { color: #d5dce2; }
+.mind-hud .mind-bar { background: rgba(255, 255, 255, .2); width: 120px; }
+.mind-hud.task { padding: 12px 18px; border-radius: 14px; gap: 14px; font-size: 16px; border-color: rgba(255, 200, 110, .55); box-shadow: 0 8px 28px rgba(0, 0, 0, .35); }
+.mind-hud.task .mind-bar { width: 200px; height: 12px; }
+.mind-hud.task .mind-hint { color: #fff; font-weight: 600; }
+.mind-bar .tick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #ffc46b; }
+.mind-bar .tick.pos { left: calc(50% + 23.3%); }
+.mind-bar .tick.neg { left: calc(50% - 23.3%); }
 .mind-label { min-width: 80px; font-weight: 700; }
 .mind-bar { position: relative; width: 160px; height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
 .mind-bar i { position: absolute; top: 0; bottom: 0; }
@@ -415,3 +423,10 @@ ol.wiz > li[data-state="now"]::before { border-color: var(--accent); color: var(
 ol.wiz > li[data-state="done"]::before { content: "\2713"; background: var(--ok); border-color: var(--ok); color: var(--on-accent); }
 ol.wiz > li[data-state="todo"] { border-style: dashed; }
 @media (max-width: 900px) { body.side-open .live, .live { grid-template-columns: 1fr; } body:not(.side-open) .live-side { display: grid; } #sideBtn { display: none; } }
+
+/* the readout stays small so it never covers the world */
+.readout { padding: 8px 14px 10px; gap: 2px; max-width: min(380px, calc(100% - 200px)); }
+.readout .eyebrow, .readout .va { display: none; }
+.readout .word { font-size: clamp(26px, 2.6vw, 34px); }
+.readout .sub { font-size: 12.5px; }
+.mind-hud #mindNeg { background: #9fc0de; }
