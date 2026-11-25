@@ -172,7 +172,7 @@ export class Terrain {
   }
 
   /** Nearest open water to (x, z): a spot whose surroundings (12 units) are sea too. For the ship. */
-  spawnSea(x = 0, z = 0): { x: number; z: number } | null {
+  spawnSea(x = 0, z = 0, clear = 12): { x: number; z: number } | null {
     const wet = (px: number, pz: number) => this.surface(px, pz) <= this.waterY + 0.01;
     for (let r = 0; r <= 300; r += 6) {
       const n = Math.max(1, Math.round(r / 3));
@@ -180,7 +180,7 @@ export class Terrain {
         const a = (k / n) * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
         if (!wet(px, pz)) continue;
         let open = true;
-        for (let q = 0; q < 8 && open; q++) open = wet(px + Math.cos(q * 0.785) * 12, pz + Math.sin(q * 0.785) * 12);
+        for (let q = 0; q < 8 && open; q++) open = wet(px + Math.cos(q * 0.785) * clear, pz + Math.sin(q * 0.785) * clear);
         if (open) return { x: px, z: pz };
       }
     }

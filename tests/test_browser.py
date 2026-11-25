@@ -52,6 +52,7 @@ def shot(page, name):
 # therefore clicked with dispatch_event (same handlers, no pointer-actionability wait).
 def new_page(browser, errors, **kw):
     page = browser.new_page(**kw)
+    page.add_init_script("try { localStorage.setItem('emotif.sidePanel', 'true') } catch (e) {}")   # tests use the side panel
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     page.route("**/fonts.googleapis.com/**", lambda r: r.abort())

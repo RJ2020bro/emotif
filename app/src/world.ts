@@ -264,7 +264,12 @@ vec3 naturalSky(vec3 d) {
   if (uSkyOn > 0.5) {                             // a photographed sky (image library), turned to match the sun
     float u = fract(atan(d.z, d.x) / 6.2831853 + 0.5 + uSkyRot);
     float v = clamp(asin(clamp(h, 0.0, 1.0)) / 1.5707963, 0.004, 0.996);
-    vec3 photo = texture2D(tSky, vec2(u, v)).rgb;
+    // the wrap of u (0 -> 1) would make the GPU pick the smallest mip there and draw a seam line: take the
+    // gradient from a copy of u that is continuous across the wrap
+    vec2 uv = vec2(u, v), uw = vec2(fract(u + 0.5) - 0.5, v);
+    vec2 gx = dFdx(uv), gy = dFdy(uv), gxw = dFdx(uw), gyw = dFdy(uw);
+    if (abs(gxw.x) + abs(gyw.x) < abs(gx.x) + abs(gy.x)) { gx = gxw; gy = gyw; }
+    vec3 photo = textureGrad(tSky, uv, gx, gy).rgb;
     col = mix(uHorizon, photo, smoothstep(0.015, 0.09, h));
   } else col += uSunColor * (0.22 * pow(mu, 6.0) + 0.5 * pow(mu, 48.0));
   col = mix(col, uHorizon * 0.8, smoothstep(0.0, -0.25, h));
@@ -657,7 +662,7 @@ export class World {
     this.sky.frustumCulled = false;
     this.sky.renderOrder = -1;
     this.scene.add(this.sky);
-    const span = (2 * RADIUS + 3) * CHUNK;   // covers the largest radius
+    const span = 1800;   // reaches the horizon (camera far plane 900), so the sea never shows an edge
     const wg = new THREE.PlaneGeometry(span, span);
     wg.rotateX(-Math.PI / 2);
     this.water = new THREE.Mesh(wg, new THREE.ShaderMaterial({
@@ -701,7 +706,7 @@ export class World {
     this.scene.add(this.ring);
 
     // beacons: one per second of session, left along the explorer's path
-    this.beacons = new THREE.InstancedMesh(new THREE.BoxGeometry(0.35, 1, 0.35), new THREE.MeshBasicMaterial(), this.beaconMax);
+    this.beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(0.32, 10, 8), new THREE.MeshBasicMaterial(), this.beaconMax);
     this.beacons.count = 0;
     this.beacons.frustumCulled = false;
     this.beacons.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -844,7 +849,7 @@ export class World {
       const w = 0.18 + 0.05 * (i % 4), ph = i * 2.399, R = 12 + (i % 5) * 5, t = this.time;
       const a = t * w * (i % 2 ? 1 : -1) + ph;
       const x = P.x + Math.cos(a) * R + Math.sin(t * 0.07 + i) * 6, z = P.z + Math.sin(a) * R;
-      const y = base + 14 + (i % 3) * 4 + Math.sin(t * 0.5 + ph) * 1.5;
+      const y = base + 24 + (i % 3) * 5 + Math.sin(t * 0.5 + ph) * 1.5;   // above the chase camera
       const dir = a + (i % 2 ? Math.PI / 2 : -Math.PI / 2);
       const flap = Math.sin(t * (7 + (i % 3)) + ph) * 0.55;
       for (const side of [1, -1]) {
@@ -897,7 +902,7 @@ export class World {
     for (const sp of this.labels.values()) { this.scene.remove(sp); (sp.material as THREE.SpriteMaterial).map?.dispose(); sp.material.dispose(); }
     this.labels.clear(); this.found.clear(); this.log = []; this.skip.clear(); this.goal = null;
     this.mapLand = null; this.chapters = [];
-    const sea = this.specV.terrain.islands && this.specV.terrain.water >= 0.45 ? this.terrain.spawnSea(this.pos.x, this.pos.z) : null;
+    const sea = this.specV.terrain.islands && this.specV.terrain.water >= 0.45 ? (this.terrain.spawnSea(this.pos.x, this.pos.z, 26) ?? this.terrain.spawnSea(this.pos.x, this.pos.z)) : null;
     this.shipMode = !!sea;
     if (this.ship) this.ship.visible = this.shipMode;
     const sp = sea ?? this.terrain.spawn(this.pos.x, this.pos.z);
@@ -906,7 +911,7 @@ export class World {
     if (this.controls) {
       const off = this.camera.position.clone().sub(this.controls.target);
       // natural: a low, grounded view that shows the horizon and sky
-      const [back, up] = this.specV.style === "natural" ? [20, 6.5] : [24, 14];
+      const [back, up] = this.shipMode ? [30, 12] : this.specV.style === "natural" ? [20, 6.5] : [24, 14];   // ship: a high chase view over the coast
       if (off.lengthSq() < 1 || old.lengthSq() === 0) off.set(-Math.cos(this.heading) * back, up, -Math.sin(this.heading) * back);
       this.controls.target.copy(this.pos);
       this.camera.position.copy(this.pos).add(off);
@@ -1114,7 +1119,7 @@ export class World {
     U.uBright.value = 1 + 0.12 * m * v;
     const warm = m * pos, cool = m * neg;
     U.uTint.value.set((1 + 0.06 * warm) * (1 - 0.1 * cool), (1) * (1 - 0.04 * cool), (1 - 0.1 * warm) * (1 + 0.08 * cool));
-    U.uFogDensity.value = (1.15 / (this.radius * CHUNK)) * (1 + 0.9 * m * neg) * (spec.style === "natural" ? 0.5 : 1);
+    U.uFogDensity.value = (1.15 / (this.radius * CHUNK)) * (1 + 0.9 * m * neg) * (spec.style === "natural" ? 0.5 : 1) * (this.shipMode ? 0.7 : 1);   // clear sea air
     U.uSway.value = (0.25 + 1.6 * ar * m) * motion;
     U.uWave.value = 0.3 + 0.9 * ar + 0.5 * U.uFoam.value;
     // sky: cloud cover follows unpleasantness, storms need unpleasant + aroused; clouds move with arousal
@@ -1168,6 +1173,16 @@ export class World {
     }
     const floor = this.terrain.surface(this.camera.position.x, this.camera.position.z) + 1.5;
     if (this.camera.position.y < floor) this.camera.position.y = floor;
+    if (this.mode === "world") {   // keep the explorer in sight: rise over any hill between the camera and it
+      const t = this.controls.target, c = this.camera.position;
+      let need = -Infinity;
+      for (let k = 1; k <= 8; k++) {
+        const f = k / 9, g = this.terrain.surface(t.x + (c.x - t.x) * f, t.z + (c.z - t.z) * f) + 1.2;
+        need = Math.max(need, t.y + (g - t.y) / f);
+      }
+      need = Math.min(need, t.y + 70);
+      if (need > c.y) c.y += (need - c.y) * Math.min(1, dt * 5);
+    }
     this.controls.update();
     this.sky.position.copy(this.camera.position);
     this.water.position.x = Math.round(this.camera.position.x / CHUNK) * CHUNK;
@@ -1407,10 +1422,11 @@ export class World {
   pushStrata(v: number, a: number) {
     if (!this.ok) return;
     const i = this.beaconCount % this.beaconMax;
-    const h = 0.4 + 1.0 * (clamp(a, -1, 1) + 1) / 2;
+    // the wake of the voyage: small floating lights, coloured by mood, larger when energy was higher
+    const k = 0.6 + 0.8 * (clamp(a, -1, 1) + 1) / 2;
     const gy = this.terrain.surface(this.pos.x, this.pos.z);
-    this.dummy.position.set(this.pos.x, gy + h / 2, this.pos.z);
-    this.dummy.scale.set(1, h, 1);
+    this.dummy.position.set(this.pos.x, gy + 0.3 * k, this.pos.z);
+    this.dummy.scale.set(k, k, k);
     this.dummy.updateMatrix();
     this.beacons.setMatrixAt(i, this.dummy.matrix);
     this.beacons.setColorAt(i, paletteAt(v, a)[4]);
@@ -1576,7 +1592,7 @@ export class World {
       m.className = "world-map";
       m.setAttribute("role", "img");
       m.setAttribute("aria-label", "Chart: the ship, nearby landmarks (gold when their beacon is lit) and the course to the next one");
-      m.style.cssText = "position:absolute;right:14px;top:58px;width:136px;height:136px;border-radius:50%;z-index:2;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.35)";
+      m.style.cssText = "position:absolute;right:12px;top:56px;width:112px;height:112px;opacity:.92;border-radius:50%;z-index:2;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.35)";
       this.mapCanvas = m;
     }
     if (getComputedStyle(host).position === "static") host.style.position = "relative";
@@ -1648,7 +1664,8 @@ export class World {
     else { this.slowFor = 0; this.fastFor = 0; }
     let next = this.pr;
     if (this.slowFor > 1.5 && this.pr <= 0.6 && this.radius > 2) { this.radius = 2; this.slowFor = 0; }
-    if (this.slowFor > 0.8 && this.pr > 0.35) next = Math.max(0.35, this.pr * 0.8);
+    else if (this.slowFor > 3 && this.pr <= 0.6 && this.radius <= 2 && this.pr > 0.45) next = 0.45;   // last resort
+    if (this.slowFor > 0.8 && this.pr > 0.6) next = Math.max(0.6, this.pr * 0.8);   // below 0.6 the world turns to mush
     else if (this.fastFor > 4 && this.pr < this.maxPR) next = Math.min(this.maxPR, this.pr / 0.85);
     if (next !== this.pr) {
       this.pr = next;

@@ -170,6 +170,7 @@ class App {
   async init() {
     document.documentElement.lang = "en";
     document.documentElement.dataset.theme = store.get<string>("theme", "") || "";
+    document.body.classList.toggle("side-open", store.get("sidePanel", false));
     if (!document.documentElement.dataset.theme) delete document.documentElement.dataset.theme;
     const saved = store.get<Partial<Engine["settings"]>>("settings", {});
     this.engine.settings = { ...this.engine.settings, ...saved, cleaning: { ...this.engine.settings.cleaning, ...(saved.cleaning ?? {}) } };
@@ -257,6 +258,14 @@ class App {
     document.body.append(h("a", { class: "skip-link", href: "#main" }, "Skip to content"), app, live);
     this.announcer = new Announcer(live);
     this.paintThemeIcon();
+  }
+
+  /** The mood map and controls beside the world; closed by default so the world has the whole stage. */
+  setSidePanel(open: boolean) {
+    document.body.classList.toggle("side-open", open);
+    $("sideBtn")?.setAttribute("aria-pressed", String(open));
+    store.set("sidePanel", open);
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   }
 
   /** Research's own sections: run a session, recordings, decoders. */
@@ -363,7 +372,7 @@ class App {
             h("span", { class: "mind-hint", id: "mindHint" }, "Focus to lift · relax to place")),
           h("div", { class: "stage-tools" },
             h("button", { class: "btn small", onclick: () => { this.world.focusArm(false); this.world.resumeAutoRotate(); } }, "Recentre"),
-            h("button", { class: "btn small", onclick: () => this.world.clearStrata(), title: "Remove the beacons the explorer has left" }, "Clear trail")),
+            h("button", { class: "btn small", id: "sideBtn", "aria-pressed": "false", onclick: () => this.setSidePanel(!document.body.classList.contains("side-open")) }, "Mood panel")),
           h("div", { class: "base-card", id: "baseCard", hidden: true },
             h("div", { class: "base-top" }, h("b", {}, "Resting baseline"), h("span", { class: "num", id: "baseTime" }, "")),
             h("div", { class: "meter" }, h("i", { id: "baseBar" })),
