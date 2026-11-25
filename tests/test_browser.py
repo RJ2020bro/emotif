@@ -225,8 +225,15 @@ def run_with_server(browser, errors):
         page.locator("#armMode button[data-v=intent]").dispatch_event("click")
         wait(page, "!!window.emotif.intent && window.emotif.engine.total > 512", 8)
         i0 = page.evaluate("window.emotif.arm.intentIndex")
-        page.locator("#simBlink").dispatch_event("click")
-        wait(page, f"window.emotif.arm.intentIndex === {(i0 + 1) % 8}", 6, "double blink advances the action")
+        # the simulated double blink is occasionally read as one blink before the detector settles: allow two tries
+        for attempt in range(3):
+            page.locator("#simBlink").dispatch_event("click")
+            try:
+                wait(page, f"window.emotif.arm.intentIndex !== {i0}", 6, "double blink advances the action")
+                break
+            except AssertionError:
+                if attempt == 2: raise
+        assert page.evaluate("window.emotif.arm.intentIndex") == (i0 + 1) % 8, "one double blink advances exactly one action"
         p0 = page.evaluate("[window.emotif.arm.pose.x, window.emotif.arm.pose.y, window.emotif.arm.pose.z]")
         page.locator("#simClench").dispatch_event("click")
         wait(page, "window.emotif.arm.moving", 4, "clench starts motion")

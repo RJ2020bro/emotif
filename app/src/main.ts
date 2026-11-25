@@ -1177,6 +1177,7 @@ class App {
   }
 
   onWindow(ev: WindowEvent) {
+    this.world.setOpenSea(!ev.calibrated);   // open sea during the baseline; the world rises when it ends
     if (!ev.calibrated) this.brainSeeded = false;
     else if (!this.brainSeeded) { this.brainSeeded = true; this.seedWorldFromBrain(ev); }
     if (ev.calibrated) {

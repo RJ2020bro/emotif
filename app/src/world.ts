@@ -52,7 +52,7 @@ float airF(vec3 wp) { float f = fogF(wp); return f * mix(1.0, exp(-max(wp.y, 0.0
 `;
 const CHUNK_VS = /* glsl */`
 attribute vec3 aColor; attribute vec2 aExtra; attribute vec2 aUv;
-uniform float uTime, uSway, uFar, uSink;
+uniform float uTime, uSway, uFar, uSink, uEmerge;
 varying vec3 vColor; varying vec3 vNormal; varying vec3 vWorld; varying float vKind; varying float vLift; varying vec2 vUv;
 varying float vM1;
 float h12v(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
@@ -84,6 +84,7 @@ void main() {
   vec4 w = modelMatrix * vec4(p, 1.0);
   // at sea, distant islands sink below the horizon (like the curve of the Earth) before the loaded world ends
   w.y -= uSink * 40.0 * smoothstep(uFar * 0.62, uFar, length(w.xz - cameraPosition.xz));
+  w.y -= (1.0 - uEmerge) * 48.0;   // during the resting baseline the land waits under the sea, then rises
   vWorld = w.xyz; vNormal = normal; vColor = aColor; vKind = aExtra.x;
   gl_Position = projectionMatrix * viewMatrix * w;
 }`;
@@ -436,7 +437,7 @@ const RADIUS = 3;         // chunks loaded around the explorer in each direction
 const NEAR = 1;           // chunks within this ring get full detail (grass, fine crowns); the rest lod 1
 const MAX_JOBS = 4;       // chunk jobs in flight to the worker
 const NP = 1600, BOX_W = 70, BOX_H = 34;
-const NB = 22;            // seabirds (most when the decoded state is pleasant)
+const NB = 14;            // seabirds (most when the decoded state is pleasant)
 const DISCOVER_R = 40;    // how close the explorer comes to a landmark to discover it
 const MAST = 3.6;         // ship: water line to the lantern at the masthead
 
@@ -491,7 +492,7 @@ export class World {
     uWater: { value: new THREE.Color() }, uSky: { value: new THREE.Color() },
     uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uNight: { value: 0 },
     uNatural: { value: 1 }, uSnow: { value: 1e4 }, uCloud: { value: 0.3 }, uCloudT: { value: 0 }, uStorm: { value: 0 },
-    uSkyRot: { value: 0 }, uSkyOn: { value: 0 }, uWaterY: { value: 0 }, uFoam: { value: 0 }, uFar: { value: 60 }, uSink: { value: 0 },
+    uSkyRot: { value: 0 }, uSkyOn: { value: 0 }, uWaterY: { value: 0 }, uFoam: { value: 0 }, uFar: { value: 60 }, uSink: { value: 0 }, uEmerge: { value: 1 },
     tGrass: { value: blankTexture() }, tGrassN: { value: flatNormal() }, tRock: { value: blankTexture() }, tRockN: { value: flatNormal() },
     tDirt: { value: blankTexture() }, tSand: { value: blankTexture() }, tBark: { value: blankTexture() }, tLeaves: { value: blankTexture() },
     tSky: { value: blankTexture() },
@@ -731,12 +732,13 @@ export class World {
     this.orb.add(this.halo);
     this.scene.add(this.orb);
     this.buildShip();
+    this.buildSeaLife();
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
     this.sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
     this.scene.add(this.hemi, this.sunLight, this.sunLight.target);
     const wing = new THREE.BufferGeometry();
     wing.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0.3, 0, 0, -0.35, 0, 0, -0.1, 0.05, 1.25]), 3));
-    this.birds = new THREE.InstancedMesh(wing, new THREE.MeshBasicMaterial({ color: 0x2b3038, side: THREE.DoubleSide }), NB * 2);
+    this.birds = new THREE.InstancedMesh(wing, new THREE.MeshBasicMaterial({ color: 0x56616b, side: THREE.DoubleSide }), NB * 2);
     this.birds.frustumCulled = false;
     this.birds.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.birds.count = 0;
@@ -768,6 +770,106 @@ export class World {
     this.points.frustumCulled = false;
     this.scene.add(this.points);
     this.scene.fog = new THREE.FogExp2(0xffffff, 0.02);
+  }
+
+  // ---------------------------------------------------------------- sea life: each realm has its own creatures
+  private life: Record<string, THREE.Group> = {};
+  private lifeW: Record<string, number> = {};
+  private lanterns: THREE.Mesh[] = [];
+  private dolphins: THREE.Group[] = [];
+
+  /** Dolphins (calm), a sea serpent (stress), the Umibōzu's vast shape in the fog (anxiety), a ferryman's boat
+   * (low mood) and floating lanterns (drowsy). Low-poly, lit like the ship, faded in with the realm. */
+  private buildSeaLife() {
+    const std = (c: number, e = 0) => new THREE.MeshLambertMaterial({ color: c, emissive: e, transparent: true });
+    // dolphins
+    const dg = new THREE.Group();
+    const body = new THREE.SphereGeometry(1, 14, 10); body.scale(1.7, 0.42, 0.42);
+    const fin = new THREE.ConeGeometry(0.22, 0.7, 4); fin.translate(0, 0.55, 0); fin.rotateZ(-0.35);
+    const tail = new THREE.ConeGeometry(0.5, 0.25, 4); tail.rotateZ(Math.PI / 2); tail.scale(1, 1, 2.2); tail.translate(-1.75, 0, 0);
+    for (let i = 0; i < 3; i++) {
+      const d = new THREE.Group(), m = std(0x5d7486);
+      d.add(new THREE.Mesh(body, m), new THREE.Mesh(fin, m), new THREE.Mesh(tail, m));
+      d.scale.setScalar(1.5);
+      dg.add(d); this.dolphins.push(d);
+    }
+    // sea serpent: humps of a coil breaking the surface
+    const sg = new THREE.Group(), sm = std(0x2f4a3c);
+    for (let i = 0; i < 5; i++) {
+      const hump = new THREE.Mesh(new THREE.TorusGeometry(2.6 - i * 0.25, 0.75 - i * 0.08, 10, 24, Math.PI), sm);
+      hump.position.set(-i * 5.2, 0, Math.sin(i) * 1.5);
+      sg.add(hump);
+    }
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.9, 3.2, 8), sm);
+    head.rotation.z = -Math.PI / 2.6; head.position.set(3.4, 2.4, 0);
+    sg.add(head);
+    sg.scale.setScalar(1.8);
+    // Umibōzu: a vast dark shoulder and head rising from the fog, two faint eyes
+    const ug = new THREE.Group(), um = std(0x151a1f);
+    const bulk = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), um); bulk.scale.set(13, 22, 11); bulk.position.y = 4;
+    ug.add(bulk);
+    for (const s of [-1, 1]) {
+      const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dotTex, color: 0xcfe6ff, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending }));
+      eye.position.set(s * 4.5, 22, 12); eye.scale.set(3, 3, 1); ug.add(eye);
+    }
+    // the ferryman: a narrow dark boat, a hooded figure with a pole and a lantern
+    const fg = new THREE.Group(), fw = std(0x2a2420), robe = std(0x1d1f24);
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(6, 0.6, 1.4), fw); hull.position.y = 0.2; fg.add(hull);
+    const fig = new THREE.Mesh(new THREE.ConeGeometry(0.55, 2.2, 8), robe); fig.position.set(-1.6, 1.6, 0); fg.add(fig);
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), robe); hood.position.set(-1.6, 2.85, 0); fg.add(hood);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 5, 6), fw); pole.position.set(-1.2, 2, 0.3); pole.rotation.z = 0.35; fg.add(pole);
+    const lamp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dotTex, color: 0xffc46b, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    lamp.position.set(2.6, 1.6, 0); lamp.scale.set(2.2, 2.2, 1); fg.add(lamp);
+    // floating lanterns (tōrō nagashi)
+    const lg = new THREE.Group(), box = new THREE.BoxGeometry(0.55, 0.65, 0.55);
+    for (let i = 0; i < 22; i++) {
+      const l = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: 0xffb35c, transparent: true }));
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dotTex, color: 0xffa04a, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending }));
+      glow.scale.set(2.4, 2.4, 1); l.add(glow);
+      lg.add(l); this.lanterns.push(l);
+    }
+    this.life = { calm: dg, stress: sg, anxiety: ug, low_mood: fg, drowsy: lg };
+    for (const [k, g] of Object.entries(this.life)) { g.visible = false; this.lifeW[k] = 0; this.scene.add(g); }
+  }
+
+  private updateSeaLife(dt: number, motion: number) {
+    const P = this.pos, T = this.terrain, t = this.time, hx = Math.cos(this.heading), hz = Math.sin(this.heading);
+    const at = (fwd: number, side: number): [number, number] => [P.x + hx * fwd - hz * side, P.z + hz * fwd + hx * side];
+    for (const [k, g] of Object.entries(this.life)) {
+      const want = this.shipMode && this.landRisen && this.realmName === k ? this.realmW : 0;
+      this.lifeW[k] += (want - this.lifeW[k]) * Math.min(1, dt * 0.6);
+      const w = this.lifeW[k];
+      g.visible = w > 0.02;
+      if (!g.visible) continue;
+      g.traverse(o => { const m = (o as THREE.Mesh).material as THREE.Material & { opacity: number } | undefined; if (m && "opacity" in m && !(o instanceof THREE.Sprite)) m.opacity = w; });
+      const wy = T.waterY;
+      if (k === "calm") this.dolphins.forEach((d, i) => {
+        const ph = (t * 0.32 * motion + i * 0.27) % 1, [x, z] = at(9 + i * 3 + ph * 6, (i % 2 ? 1 : -1) * (6 + i * 1.5));
+        const arc = Math.sin(ph * Math.PI * 2);   // leap out (positive), then swim under
+        d.position.set(x, wy - 1.2 + Math.max(-0.6, arc) * 2.6, z);
+        d.rotation.set(0, -this.heading, Math.cos(ph * Math.PI * 2) * 0.9, "YXZ");
+      });
+      if (k === "stress") {
+        const [x, z] = at(40, -18);
+        g.position.set(x, wy - 0.4 + Math.sin(t * 0.8 * motion) * 0.5, z);
+        g.rotation.y = -this.heading + 0.4;
+        g.children.forEach((c, i) => { if (i < 5) c.position.y = Math.sin(t * 1.3 * motion - i * 0.9) * 0.9 - 0.3; });
+      }
+      if (k === "anxiety") {
+        const [x, z] = at(80, 34);
+        g.position.set(x, wy - 30 + 30 * w + Math.sin(t * 0.2) * 1.5, z);
+        g.rotation.y = -this.heading - Math.PI / 2;
+      }
+      if (k === "low_mood") {
+        const [x, z] = at(30 + Math.sin(t * 0.05) * 6, 15);
+        g.position.set(x, wy + Math.sin(t * 0.9) * 0.08, z);
+        g.rotation.y = -this.heading;
+      }
+      if (k === "drowsy") this.lanterns.forEach((l, i) => {
+        const a = i * 2.4, r = 9 + (i % 7) * 4.5, [x, z] = at(Math.cos(a) * r + 8, Math.sin(a) * r);
+        l.position.set(x, wy + 0.3 + Math.sin(t * 1.1 + i) * 0.08, z);
+      });
+    }
   }
 
   /** The spirit ship: a pointed hull, a mast and a billowing sail; the explorer's light is its masthead lantern. */
@@ -815,6 +917,7 @@ export class World {
   private updateVoyage(dt: number) {
     const P = this.pos, T = this.terrain;
     T.claimRegions(P.x, P.z, 130, this.cultureNow());   // waters coming into view take the tradition of the state you are in
+    if (!this.landRisen) { this.goal = null; return; }   // nothing to discover on the open sea
     if (this.specV.landmarks <= 0) { this.goal = null; return; }
     for (const L of T.landmarksNear(P.x, P.z, this.shipMode ? DISCOVER_R * 1.6 : DISCOVER_R)) {
       if (this.found.has(L.key)) continue;
@@ -905,7 +1008,7 @@ export class World {
         m.makeTranslation(x, y, z);
         r.makeRotationY(-dir);
         f.makeRotationX(flap);
-        sc.makeScale(1.3, 1, side * 1.3);
+        sc.makeScale(0.75, 1, side * 0.75);
         m.multiply(r).multiply(sc).multiply(f);
         this.birds.setMatrixAt(i * 2 + (side > 0 ? 0 : 1), m);
       }
@@ -1100,7 +1203,8 @@ export class World {
     if (this.keys.has("b")) speed = -4;
     this.heading -= turn * 1.4 * dt;
     const nx = this.pos.x + Math.cos(this.heading) * speed * dt, nz = this.pos.z + Math.sin(this.heading) * speed * dt;
-    if (this.shipMode && T.surface(nx, nz) > T.waterY + 0.05) {   // aground: stop and come about
+    const bowX = nx + Math.cos(this.heading) * 4, bowZ = nz + Math.sin(this.heading) * 4;   // the bow, not just the mast, stays in deep water
+    if (this.shipMode && (T.height(nx, nz) > T.waterY - 0.8 || T.height(bowX, bowZ) > T.waterY - 0.8)) {   // shallows: stop and come about
       this.stuck += dt;
       this.heading += 1.2 * dt;
     } else {
@@ -1130,7 +1234,7 @@ export class World {
         const cx = Math.cos(a), cz = Math.sin(a);
         for (let r = 3; r <= 48; r += 3) {
           const x = P.x + cx * r, z = P.z + cz * r;
-          if (T.surface(x, z) > T.waterY - 0.4) return r - 3;                 // shallows count as shore
+          if (T.height(x, z) > T.waterY - 1.6) return r - 3;                  // shallows count as shore (keeps the hull off the beach)
           for (const h of rocks) if (Math.hypot(h.x - x, h.z - z) < 8) return r - 3;
         }
         return 48;
@@ -1145,7 +1249,7 @@ export class World {
       let best = this.heading, bs = -1e9;
       for (let k = -9; k <= 9; k++) {
         const a = this.heading + k * 0.19, c = clear(a);
-        const s = 1.3 * Math.min(1, c / 36) + 0.7 * Math.cos(a - want) - 0.03 * Math.abs(k) - (c < 12 ? 2 : 0);
+        const s = 1.3 * Math.min(1, c / 36) + 0.7 * Math.cos(a - want) - 0.03 * Math.abs(k) - (c < 15 ? 2.5 : 0);
         if (s > bs) { bs = s; best = a; }
       }
       this.navWant = best;
@@ -1244,6 +1348,11 @@ export class World {
     (this.scene.fog as THREE.FogExp2).density = U.uFogDensity.value;
     U.uFar.value = (this.radius + 0.35) * CHUNK;
     U.uSink.value = this.shipMode ? 1 : 0;
+    const em = this.openSea ? 0 : 1;   // islands rise over ~6 s, smoothly
+    if (U.uEmerge.value !== em) {
+      U.uEmerge.value = em > U.uEmerge.value ? Math.min(1, U.uEmerge.value + dt * 0.17) : Math.max(0, U.uEmerge.value - dt * 0.5);
+      if (em === 1 && U.uEmerge.value === 1) this.showToast(this.specV.name, 1, "Land ahead", "Grown from your resting brain signal");
+    }
 
     this.hemi.color.copy(U.uAmbSky.value).multiplyScalar(1.6);
     this.hemi.groundColor.copy(U.uAmbGround.value).multiplyScalar(1.6);
@@ -1302,7 +1411,8 @@ export class World {
       this.orb.position.y += Math.sin(this.time * 1.4) * 0.25;
     }
     this.updateBirds(va);
-    if (this.mapCanvas && (this.mapTick++ % 6 === 0)) { this.mapCanvas.hidden = this.mode !== "world"; this.drawMap(); }
+    this.updateSeaLife(dt, motion);
+    if (this.mapCanvas && (this.mapTick++ % 6 === 0)) { this.mapCanvas.hidden = this.mode !== "world" || !this.landRisen; this.drawMap(); }
     if (this.toast && this.toastTimer > 0) {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) { this.toast.style.opacity = "0"; this.toast.style.transform = "translate(-50%, -8px)"; }
@@ -1430,7 +1540,7 @@ export class World {
     this.lastCmd = cmd;
     this.relaxCool = Math.max(0, this.relaxCool - dt);
     this.slowT = Math.max(0, this.slowT - dt);
-    const play = this.interactive && this.gameOn && this.shipMode;
+    const play = this.interactive && this.gameOn && this.shipMode && this.landRisen;
     // rocks on the course
     if (play && this.explore && this.time > this.nextHazardAt && !this.hazards.some(h => h.state === "ahead")) {
       this.nextHazardAt = this.time + (this.spawnHazard() ? 22 + Math.random() * 16 : 3);
@@ -1538,6 +1648,12 @@ export class World {
       }
     } else if (this.realmName) this.realmW = Math.min(1, this.realmW + dt * 0.25);   // slow fade: no flashes
   }
+  /** Open sea: while the resting baseline is recorded the ship sails an empty ocean; when it ends, the world
+   * grown from that baseline rises out of the sea. */
+  setOpenSea(on: boolean) { this.openSea = on; }
+  private openSea = false;
+  get landRisen(): boolean { return (this.U.uEmerge.value as number) >= 1; }
+
   /** Hold a realm and one of its myths regardless of the decoder (demos, tests, filming); null releases it. */
   holdRealm(name: RealmName | null, myth = 0) {
     this.realmHeld = !!name;

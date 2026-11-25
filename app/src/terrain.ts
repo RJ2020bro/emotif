@@ -245,7 +245,7 @@ export class Terrain {
 
   /** Nearest open water to (x, z): a spot whose surroundings (12 units) are sea too. For the ship. */
   spawnSea(x = 0, z = 0, clear = 12): { x: number; z: number } | null {
-    const wet = (px: number, pz: number) => this.surface(px, pz) <= this.waterY + 0.01;
+    const wet = (px: number, pz: number) => this.height(px, pz) <= this.waterY - 1.6;   // deep enough for a keel
     for (let r = 0; r <= 300; r += 6) {
       const n = Math.max(1, Math.round(r / 3));
       for (let k = 0; k < n; k++) {
@@ -800,13 +800,13 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
   const at = (u: number, w: number): [number, number] => [x + u * Math.cos(rot) - w * Math.sin(rot), z + u * Math.sin(rot) + w * Math.cos(rot)];
   const column = (u: number, w: number, y0: number, h: number, rad: number, col: RGB) => {
     const [px, pz] = at(u, w);
-    mb.obox(px, y0, pz, rad * 1.25, rad * 0.5, rad * 1.25, rot, col, K.stone, y);
-    mb.cone(px, y0 + rad * 0.5, pz, rad, rad * 0.82, h - rad, 10, 0, col, K.stone, y, true);
-    mb.obox(px, y0 + h - rad * 0.1, pz, rad * 1.3, rad * 0.45, rad * 1.3, rot, col, K.stone, y);
+    mb.obox(px, y0, pz, rad * 1.25, rad * 0.5, rad * 1.25, rot, col, K.plain, y);
+    mb.cone(px, y0 + rad * 0.5, pz, rad, rad * 0.82, h - rad, 10, 0, col, K.plain, y, true);
+    mb.obox(px, y0 + h - rad * 0.1, pz, rad * 1.3, rad * 0.45, rad * 1.3, rot, col, K.plain, y);
   };
   const fallen = (u: number, w: number, len: number, rad: number, a: number) => {
     const [px, pz] = at(u, w);
-    mb.obox(px, y - 0.1, pz, len / 2, rad * 1.6, rad, rot + a, MARBLE_D, K.stone, y);
+    mb.obox(px, y - 0.1, pz, len / 2, rad * 1.6, rad, rot + a, MARBLE_D, K.plain, y);
   };
   const flame = (px: number, py: number, pz: number, k: number) => {
     mb.cone(px, py, pz, 0.55 * k, 0.75 * k, 0.6 * k, 8, 0, [0.25, 0.22, 0.2], K.plain, y, false);
@@ -815,9 +815,9 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
   switch (L.kind) {
     case "temple": {
       const hx = 9.6 * S, hz = 6.4 * S;
-      mb.obox(x, y - 2.5, z, hx, 2.7, hz, rot, MARBLE_D, K.stone, y);
-      mb.obox(x, y + 0.2, z, hx - 0.5, 0.4, hz - 0.5, rot, MARBLE, K.stone, y);
-      mb.obox(x, y + 0.6, z, hx - 1, 0.4, hz - 1, rot, MARBLE, K.stone, y);
+      mb.obox(x, y - 2.5, z, hx, 2.7, hz, rot, MARBLE_D, K.plain, y);
+      mb.obox(x, y + 0.2, z, hx - 0.5, 0.4, hz - 0.5, rot, MARBLE, K.plain, y);
+      mb.obox(x, y + 0.6, z, hx - 1, 0.4, hz - 1, rot, MARBLE, K.plain, y);
       const fl = y + 1, H = 7 * S, rad = 0.55 * S, cols: [number, number][] = [];
       for (let i = 0; i < 6; i++) for (const w of [-1, 1]) cols.push([(-7.5 + 3 * i) * S, w * 4.5 * S]);
       for (const u of [-1, 1]) for (const w of [-1.5, 1.5]) cols.push([u * 7.5 * S, w * S]);
@@ -828,15 +828,15 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
         else if (q < 0.25) fallen(u + 1.5 * S, w * 1.25, H * 0.6, rad, 0.4 + q * 4);
         else column(u, w, fl, q < 0.6 ? H * (0.25 + q) : H, rad, MARBLE);
       }
-      mb.obox(x, fl, z, 4.4 * S, H * 0.92, 2.7 * S, rot, MARBLE_D, K.stone, y);          // the cella
+      mb.obox(x, fl, z, 4.4 * S, H * 0.92, 2.7 * S, rot, MARBLE_D, K.plain, y);          // the cella
       if (!L.ruined) {
         const top = fl + H + 0.3 * S;
-        mb.obox(x, top, z, 8.4 * S, 1.1 * S, 5.4 * S, rot, MARBLE, K.stone, y);
-        mb.obox(x, top + 1.1 * S, z, 8.7 * S, 0.35 * S, 5.7 * S, rot, MARBLE_D, K.stone, y);
+        mb.obox(x, top, z, 8.4 * S, 1.1 * S, 5.4 * S, rot, MARBLE, K.plain, y);
+        mb.obox(x, top + 1.1 * S, z, 8.7 * S, 0.35 * S, 5.7 * S, rot, MARBLE_D, K.plain, y);
         const ry = top + 1.45 * S, ph = 2.3 * S, inC: V3 = [x, ry - 1, z];
         const P = (u: number, yy: number, w: number): V3 => { const [px, pz] = at(u, w); return [px, yy, pz]; };
         const U = 8.7 * S, W = 5.7 * S;
-        for (const su of [-1, 1]) mb.tri(P(su * U, ry, -W), P(su * U, ry, W), P(su * U, ry + ph, 0), null, MARBLE, K.stone, y, inC);
+        for (const su of [-1, 1]) mb.tri(P(su * U, ry, -W), P(su * U, ry, W), P(su * U, ry + ph, 0), null, MARBLE, K.plain, y, inC);
         for (const sw of [-1, 1]) {
           mb.tri(P(-U, ry, sw * W), P(U, ry, sw * W), P(U, ry + ph, 0), null, TERRA, K.plain, y, inC);
           mb.tri(P(-U, ry, sw * W), P(U, ry + ph, 0), P(-U, ry + ph, 0), null, TERRA, K.plain, y, inC);
@@ -849,14 +849,14 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
       break;
     }
     case "pharos": {
-      mb.blob(x, y - 1.2, z, 4.6 * S, 2.6 * S, 4.6 * S, MEGALITH, K.stone, y, true, sd, true);
+      mb.blob(x, y - 1.2, z, 4.6 * S, 2.6 * S, 4.6 * S, MEGALITH, K.plain, y, true, sd, true);
       let yy = y + 0.6, rad = 2.6 * S;
       for (let k = 0; k < 4; k++) {
         const h = 3.4 * S, r1 = rad - 0.22 * S;
-        mb.cone(x, yy, z, rad, r1, h, 12, rot, k % 2 ? TERRA : MARBLE, K.stone, y, true);
+        mb.cone(x, yy, z, rad, r1, h, 12, rot, k % 2 ? TERRA : MARBLE, K.plain, y, true);
         yy += h; rad = r1;
       }
-      mb.cone(x, yy, z, rad + 0.7 * S, rad + 0.7 * S, 0.45 * S, 12, rot, MARBLE_D, K.stone, y, false);
+      mb.cone(x, yy, z, rad + 0.7 * S, rad + 0.7 * S, 0.45 * S, 12, rot, MARBLE_D, K.plain, y, false);
       mb.blob(x, yy + 1.4 * S, z, 1.25 * S, 1.2 * S, 1.25 * S, FLAME, K.glow, y, true, sd);
       mb.cone(x, yy + 2.5 * S, z, 1.7 * S, 0, 1.8 * S, 10, rot, [0.25, 0.27, 0.3], K.plain, y, false);
       break;
@@ -867,7 +867,7 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
         if (k === 0 || k === 1) continue;                                   // the gateway
         if (L.ruined && r(k) < 0.25) continue;
         const a = rot + (k / n) * Math.PI * 2, px = x + Math.cos(a) * 8 * S, pz = z + Math.sin(a) * 8 * S;
-        mb.obox(px, y - 0.6, pz, 0.45, 1.5, 1.05 * S, a, MARBLE_D, K.stone, y);
+        mb.obox(px, y - 0.6, pz, 0.45, 1.5, 1.05 * S, a, MARBLE_D, K.plain, y);
       }
       const ox = x - Math.cos(rot) * 2.6 * S, oz = z - Math.sin(rot) * 2.6 * S, OAK: RGB = [0.27, 0.42, 0.2], BARK: RGB = [0.32, 0.25, 0.18];
       mb.cone(ox, y - 0.3, oz, 0.95 * S, 0.6 * S, 6.5 * S, 9, 0, BARK, K.bark, y, true);
@@ -879,39 +879,39 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
         const a = rot + 0.6 + k * (Math.PI / 2), px = x + Math.cos(a) * 5.6 * S, pz = z + Math.sin(a) * 5.6 * S;
         for (let l = 0; l < 3; l++) {
           const b = l * 2.094, lx = px + Math.cos(b) * 0.35, lz = pz + Math.sin(b) * 0.35;
-          mb.obox(lx, y, lz, 0.06, 1.4, 0.06, b, BRONZE, K.stone, y);
+          mb.obox(lx, y, lz, 0.06, 1.4, 0.06, b, BRONZE, K.plain, y);
         }
-        mb.blob(px, y + 1.55, pz, 0.55, 0.32, 0.55, BRONZE, K.stone, y, true, sd + 40 + k, false);
+        mb.blob(px, y + 1.55, pz, 0.55, 0.32, 0.55, BRONZE, K.plain, y, true, sd + 40 + k, false);
       }
-      mb.obox(x, y - 0.4, z, 1.3 * S, 1.6, 0.9 * S, rot, MARBLE, K.stone, y);   // the altar, with its fire
+      mb.obox(x, y - 0.4, z, 1.3 * S, 1.6, 0.9 * S, rot, MARBLE, K.plain, y);   // the altar, with its fire
       flame(x, y + 1.2, z, 1);
       break;
     }
     case "colossus": {
-      mb.obox(x, y - 1.5, z, 3.4 * S, 4 * S + 1.5, 3.4 * S, rot, MARBLE_D, K.stone, y);
+      mb.obox(x, y - 1.5, z, 3.4 * S, 4 * S + 1.5, 3.4 * S, rot, MARBLE_D, K.plain, y);
       const b = y + 4 * S, P = (u: number, w: number) => at(u, w);
-      for (const w of [-1, 1]) { const [px, pz] = P(0, w * 1.1 * S); mb.obox(px, b, pz, 0.8 * S, 6 * S, 0.75 * S, rot, BRONZE, K.stone, y); }
+      for (const w of [-1, 1]) { const [px, pz] = P(0, w * 1.1 * S); mb.obox(px, b, pz, 0.8 * S, 6 * S, 0.75 * S, rot, BRONZE, K.plain, y); }
       const [tx, tz] = P(0, 0);
-      mb.obox(tx, b + 6 * S, tz, 1.5 * S, 5.5 * S, 2.3 * S, rot, BRONZE, K.stone, y);
-      mb.blob(tx, b + 12.6 * S, tz, 1.05 * S, 1.3 * S, 1.05 * S, BRONZE, K.stone, y, true, sd, true);
+      mb.obox(tx, b + 6 * S, tz, 1.5 * S, 5.5 * S, 2.3 * S, rot, BRONZE, K.plain, y);
+      mb.blob(tx, b + 12.6 * S, tz, 1.05 * S, 1.3 * S, 1.05 * S, BRONZE, K.plain, y, true, sd, true);
       const [lx, lz] = P(0, -2.9 * S);
-      mb.obox(lx, b + 6.6 * S, lz, 0.55 * S, 4.6 * S, 0.55 * S, rot, BRONZE, K.stone, y);           // arm at the side
+      mb.obox(lx, b + 6.6 * S, lz, 0.55 * S, 4.6 * S, 0.55 * S, rot, BRONZE, K.plain, y);           // arm at the side
       const [ax, az] = P(0, 2.9 * S);
-      mb.obox(ax, b + 9.5 * S, az, 0.55 * S, 6.5 * S, 0.55 * S, rot, BRONZE, K.stone, y);           // arm raised
+      mb.obox(ax, b + 9.5 * S, az, 0.55 * S, 6.5 * S, 0.55 * S, rot, BRONZE, K.plain, y);           // arm raised
       mb.blob(ax, b + 16.8 * S, az, 0.9 * S, 1.3 * S, 0.9 * S, FLAME, K.glow, y, true, sd + 1);   // the torch
       break;
     }
     case "tholos": {
-      mb.cone(x, y - 1.2, z, 5.2 * S, 5.2 * S, 1.7, 18, rot, MARBLE_D, K.stone, y, true);
+      mb.cone(x, y - 1.2, z, 5.2 * S, 5.2 * S, 1.7, 18, rot, MARBLE_D, K.plain, y, true);
       const n = 8, fl = y + 0.5, H = 4.6 * S;
       for (let k = 0; k < n; k++) {
         if (L.ruined && r(k) < 0.3) continue;
         const a = rot + (k / n) * Math.PI * 2;
         const px = x + Math.cos(a) * 3.9 * S, pz = z + Math.sin(a) * 3.9 * S;
-        mb.cone(px, fl, pz, 0.38 * S, 0.32 * S, H, 10, 0, MARBLE, K.stone, y, true);
+        mb.cone(px, fl, pz, 0.38 * S, 0.32 * S, H, 10, 0, MARBLE, K.plain, y, true);
       }
       if (!L.ruined) {
-        mb.cone(x, fl + H, z, 4.5 * S, 4.5 * S, 0.6 * S, 18, rot, MARBLE, K.stone, y, true);
+        mb.cone(x, fl + H, z, 4.5 * S, 4.5 * S, 0.6 * S, 18, rot, MARBLE, K.plain, y, true);
         mb.blob(x, fl + H + 0.6 * S, z, 4.3 * S, 2.6 * S, 4.3 * S, TERRA, K.plain, y, true, sd, true);
       }
       flame(x, fl, z, 1.1 * S);
@@ -919,14 +919,14 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
     }
     case "ahu": {   // Rapa Nui: a stone platform with moai facing inland, a few wearing red scoria pukao
       const TUFF: RGB = [0.42, 0.4, 0.37], SCORIA: RGB = [0.62, 0.28, 0.2], n = 3 + Math.floor(r(1) * 5);
-      mb.obox(x, y - 1, z, (1.9 * n + 1) * S / 2 + 0.6, 2.2, 1.9 * S, rot, MEGALITH, K.stone, y);
+      mb.obox(x, y - 1, z, (1.9 * n + 1) * S / 2 + 0.6, 2.2, 1.9 * S, rot, MEGALITH, K.plain, y);
       for (let k = 0; k < n; k++) {
         const u = (k - (n - 1) / 2) * 1.9 * S, [px, pz] = at(u, 0), hh = (0.9 + 0.2 * r(10 + k)) * S;
-        mb.obox(px, y + 1.2, pz, 0.62 * S, 3.4 * hh, 0.5 * S, rot, TUFF, K.stone, y);                        // body
-        mb.obox(px, y + 1.2 + 3.4 * hh, pz, 0.5 * S, 2.3 * hh, 0.48 * S, rot, TUFF, K.stone, y);              // long head
+        mb.obox(px, y + 1.2, pz, 0.62 * S, 3.4 * hh, 0.5 * S, rot, TUFF, K.plain, y);                        // body
+        mb.obox(px, y + 1.2 + 3.4 * hh, pz, 0.5 * S, 2.3 * hh, 0.48 * S, rot, TUFF, K.plain, y);              // long head
         const [nx, nz] = at(u, 0.5 * S);
-        mb.obox(nx, y + 1.2 + 3.9 * hh, nz, 0.14 * S, 1.1 * hh, 0.12 * S, rot, TUFF, K.stone, y);              // nose
-        if (r(20 + k) < 0.45) mb.cone(px, y + 1.2 + 5.7 * hh, pz, 0.48 * S, 0.44 * S, 0.65 * S, 10, 0, SCORIA, K.stone, y, true);
+        mb.obox(nx, y + 1.2 + 3.9 * hh, nz, 0.14 * S, 1.1 * hh, 0.12 * S, rot, TUFF, K.plain, y);              // nose
+        if (r(20 + k) < 0.45) mb.cone(px, y + 1.2 + 5.7 * hh, pz, 0.48 * S, 0.44 * S, 0.65 * S, 10, 0, SCORIA, K.plain, y, true);
       }
       const [fx, fz] = at(0, 5 * S);
       flame(fx, y, fz, 1);
@@ -935,16 +935,16 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
     case "marae": {   // a paved sacred courtyard with an ahu step at one end and upright backrest stones
       for (const sw of [-1, 1]) {
         const [px, pz] = at(0, sw * 5.5 * S);
-        mb.obox(px, y - 0.4, pz, 7.5 * S, 0.9, 0.35, rot, MEGALITH, K.stone, y);
+        mb.obox(px, y - 0.4, pz, 7.5 * S, 0.9, 0.35, rot, MEGALITH, K.plain, y);
         const [qx, qz] = at(sw * 7.5 * S, 0);
-        mb.obox(qx, y - 0.4, qz, 0.35, 0.9, 5.5 * S, rot, MEGALITH, K.stone, y);
+        mb.obox(qx, y - 0.4, qz, 0.35, 0.9, 5.5 * S, rot, MEGALITH, K.plain, y);
       }
       const [ax, az] = at(-6 * S, 0);
-      mb.obox(ax, y - 0.5, az, 1.2 * S, 1.8, 4.6 * S, rot, MEGALITH, K.stone, y);
-      mb.obox(ax, y + 1.3, az, 0.9 * S, 0.8, 3.6 * S, rot, MEGALITH, K.stone, y);
+      mb.obox(ax, y - 0.5, az, 1.2 * S, 1.8, 4.6 * S, rot, MEGALITH, K.plain, y);
+      mb.obox(ax, y + 1.3, az, 0.9 * S, 0.8, 3.6 * S, rot, MEGALITH, K.plain, y);
       for (let k = 0; k < 5; k++) {
         const [px, pz] = at(-2 + (k % 2) * 3 * S, (k - 2) * 2.2 * S);
-        mb.obox(px, y - 0.2, pz, 0.35, (1.4 + r(k)) * S, 0.25, rot + 0.1 * (r(k + 5) - 0.5), MEGALITH, K.stone, y);
+        mb.obox(px, y - 0.2, pz, 0.35, (1.4 + r(k)) * S, 0.25, rot + 0.1 * (r(k + 5) - 0.5), MEGALITH, K.plain, y);
       }
       flame(x, y, z, 1);
       break;
@@ -953,10 +953,10 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
       const n = 13;
       for (let k = 0; k < n; k++) {
         const a = rot + (k / n) * Math.PI * 2, px = x + Math.cos(a) * 7 * S, pz = z + Math.sin(a) * 7 * S, q = r(k);
-        if (L.ruined && q < 0.25) { mb.obox(px, y - 0.2, pz, 2.1 * S, 0.9 * S, 0.7 * S, a + 0.5, MEGALITH, K.stone, y); continue; }
-        mb.obox(px, y - 1, pz, 0.55 * S, (3.6 + 1.8 * q) * S, 0.95 * S, a, MEGALITH, K.stone, y);
+        if (L.ruined && q < 0.25) { mb.obox(px, y - 0.2, pz, 2.1 * S, 0.9 * S, 0.7 * S, a + 0.5, MEGALITH, K.plain, y); continue; }
+        mb.obox(px, y - 1, pz, 0.55 * S, (3.6 + 1.8 * q) * S, 0.95 * S, a, MEGALITH, K.plain, y);
       }
-      mb.obox(x, y - 0.5, z, 1.4 * S, 1.6, 0.9 * S, rot, MEGALITH, K.stone, y);
+      mb.obox(x, y - 0.5, z, 1.4 * S, 1.6, 0.9 * S, rot, MEGALITH, K.plain, y);
       flame(x, y + 1.2, z, 1);
       break;
     }
@@ -965,7 +965,7 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
       for (let k = 0; k < n; k++) {
         const a = (k / n) * Math.PI * 2, u = Math.cos(a) * 9 * S, w = Math.sin(a) * 3 * S;
         const end = Math.abs(Math.cos(a)), [px, pz] = at(u, w);
-        mb.obox(px, y - 0.6, pz, 0.4 * S, (1.2 + 2.6 * Math.pow(end, 6)) * S + 0.4, 0.55 * S, rot + a, MEGALITH, K.stone, y);
+        mb.obox(px, y - 0.6, pz, 0.4 * S, (1.2 + 2.6 * Math.pow(end, 6)) * S + 0.4, 0.55 * S, rot + a, MEGALITH, K.plain, y);
       }
       flame(x, y, z, 1);
       break;
@@ -973,7 +973,7 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
     case "runestone": {   // carved standing stones with painted bands, round a fire
       for (let k = 0; k < 3; k++) {
         const a = rot + k * 2.09, px = x + Math.cos(a) * 3.2 * S, pz = z + Math.sin(a) * 3.2 * S, hh = (3.6 + r(k) * 1.4) * S;
-        mb.obox(px, y - 0.5, pz, 0.9 * S, hh + 0.5, 0.3 * S, a + Math.PI / 2, MEGALITH, K.stone, y);
+        mb.obox(px, y - 0.5, pz, 0.9 * S, hh + 0.5, 0.3 * S, a + Math.PI / 2, MEGALITH, K.plain, y);
         mb.obox(px, y + hh * 0.55, pz, 0.92 * S, 0.22 * S, 0.32 * S, a + Math.PI / 2, [0.62, 0.16, 0.12], K.plain, y);
       }
       flame(x, y, z, 1);
@@ -981,8 +981,8 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
     }
     case "obelisk": {   // granite obelisk with a gilded pyramidion
       const GRANITE: RGB = [0.62, 0.42, 0.36];
-      mb.obox(x, y - 1, z, 2 * S, 1.6, 2 * S, rot, MARBLE_D, K.stone, y);
-      mb.cone(x, y + 0.6, z, 1.05 * S, 0.66 * S, 12 * S, 4, rot + Math.PI / 4, GRANITE, K.stone, y, false);
+      mb.obox(x, y - 1, z, 2 * S, 1.6, 2 * S, rot, MARBLE_D, K.plain, y);
+      mb.cone(x, y + 0.6, z, 1.05 * S, 0.66 * S, 12 * S, 4, rot + Math.PI / 4, GRANITE, K.plain, y, false);
       mb.cone(x, y + 0.6 + 12 * S, z, 0.66 * S, 0, 1.3 * S, 4, rot + Math.PI / 4, GOLD, K.glow, y, false);
       break;
     }
@@ -990,13 +990,13 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
       const SAND: RGB = [0.83, 0.72, 0.52];
       for (const sw of [-1, 1]) {
         const [px, pz] = at(0, sw * 4.2 * S);
-        mb.cone(px, y - 1, pz, 4.4 * S, 3.2 * S, 11 * S, 4, rot + Math.PI / 4, SAND, K.stone, y, false);
+        mb.cone(px, y - 1, pz, 4.4 * S, 3.2 * S, 11 * S, 4, rot + Math.PI / 4, SAND, K.plain, y, false);
         const [ox, oz] = at(5 * S, sw * 2.4 * S);
-        mb.cone(ox, y, oz, 0.45 * S, 0.3 * S, 5 * S, 4, rot + Math.PI / 4, [0.62, 0.42, 0.36], K.stone, y, false);
+        mb.cone(ox, y, oz, 0.45 * S, 0.3 * S, 5 * S, 4, rot + Math.PI / 4, [0.62, 0.42, 0.36], K.plain, y, false);
         mb.cone(ox, y + 5 * S, oz, 0.3 * S, 0, 0.6 * S, 4, rot + Math.PI / 4, GOLD, K.glow, y, false);
       }
-      mb.obox(x, y + 6.5 * S, z, 1.4 * S, 1.6 * S, 1.6 * S, rot, SAND, K.stone, y);
-      mb.obox(x, y - 0.5, z, 1.2 * S, 1, 4 * S, rot, MARBLE_D, K.stone, y);
+      mb.obox(x, y + 6.5 * S, z, 1.4 * S, 1.6 * S, 1.6 * S, rot, SAND, K.plain, y);
+      mb.obox(x, y - 0.5, z, 1.2 * S, 1, 4 * S, rot, MARBLE_D, K.plain, y);
       const [fx, fz] = at(7.5 * S, 0);
       flame(fx, y, fz, 1);
       break;
@@ -1014,15 +1014,15 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
         const [ex, ez] = at(0, sw * 6.3 * S);
         mb.obox(ex, y + 9.2 * S, ez, 0.55 * S, 0.45 * S, 0.5 * S, rot, BLK, K.plain, y);
         const [lx, lz] = at(4.2 * S, sw * 5.2 * S);                                            // tōrō lanterns
-        mb.obox(lx, y - 0.3, lz, 0.5 * S, 1.6 * S + 0.3, 0.5 * S, rot, MARBLE_D, K.stone, y);
+        mb.obox(lx, y - 0.3, lz, 0.5 * S, 1.6 * S + 0.3, 0.5 * S, rot, MARBLE_D, K.plain, y);
         mb.obox(lx, y + 1.6 * S, lz, 0.45 * S, 0.8 * S, 0.45 * S, rot, FLAME, K.glow, y);
-        mb.cone(lx, y + 2.4 * S, lz, 0.95 * S, 0, 0.55 * S, 4, rot + Math.PI / 4, MARBLE_D, K.stone, y, false);
+        mb.cone(lx, y + 2.4 * S, lz, 0.95 * S, 0, 0.55 * S, 4, rot + Math.PI / 4, MARBLE_D, K.plain, y, false);
       }
       break;
     }
     case "pagoda": {   // a five-storey pagoda with deep eaves and a bronze finial
       const WOOD: RGB = [0.55, 0.2, 0.14], ROOF: RGB = [0.2, 0.22, 0.24];
-      mb.obox(x, y - 1, z, 3.4 * S, 1.6, 3.4 * S, rot, MARBLE_D, K.stone, y);
+      mb.obox(x, y - 1, z, 3.4 * S, 1.6, 3.4 * S, rot, MARBLE_D, K.plain, y);
       let yy = y + 0.6;
       for (let k = 0; k < 5; k++) {
         const w = (2.5 - 0.25 * k) * S, h = 2.1 * S;
@@ -1035,17 +1035,17 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
     }
     case "shikhara": {   // a Nagara temple: a curving tower of stacked courses over the sanctum, an amalaka and kalasha on top
       const ST: RGB = [0.78, 0.62, 0.46];
-      mb.obox(x, y - 1, z, 5 * S, 2, 4 * S, rot, MARBLE_D, K.stone, y);
+      mb.obox(x, y - 1, z, 5 * S, 2, 4 * S, rot, MARBLE_D, K.plain, y);
       const [mx, mz] = at(4 * S, 0);
-      mb.obox(mx, y + 1, mz, 2.2 * S, 3.2 * S, 2.4 * S, rot, ST, K.stone, y);                     // mandapa (hall)
-      mb.cone(mx, y + 1 + 3.2 * S, mz, 2.6 * S, 0.6 * S, 1.6 * S, 4, rot + Math.PI / 4, ST, K.stone, y, false);
+      mb.obox(mx, y + 1, mz, 2.2 * S, 3.2 * S, 2.4 * S, rot, ST, K.plain, y);                     // mandapa (hall)
+      mb.cone(mx, y + 1 + 3.2 * S, mz, 2.6 * S, 0.6 * S, 1.6 * S, 4, rot + Math.PI / 4, ST, K.plain, y, false);
       let yy = y + 1;
       for (let k = 0; k < 8; k++) {
         const w = (3 - 2.1 * Math.pow(k / 8, 1.6)) * S;
-        mb.obox(x, yy, z, w, 1.6 * S, w, rot, ST, K.stone, y);
+        mb.obox(x, yy, z, w, 1.6 * S, w, rot, ST, K.plain, y);
         yy += 1.6 * S;
       }
-      mb.blob(x, yy + 0.2 * S, z, 1.1 * S, 0.35 * S, 1.1 * S, ST, K.stone, y, true, sd, false);      // amalaka
+      mb.blob(x, yy + 0.2 * S, z, 1.1 * S, 0.35 * S, 1.1 * S, ST, K.plain, y, true, sd, false);      // amalaka
       mb.blob(x, yy + 0.6 * S, z, 0.35 * S, 0.5 * S, 0.35 * S, GOLD, K.glow, y, true, sd + 1);      // kalasha
       break;
     }
@@ -1053,26 +1053,45 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
       const LIME: RGB = [0.78, 0.74, 0.64], RED: RGB = [0.62, 0.22, 0.16];
       for (let k = 0; k < 5; k++) {
         const w = (9 - k * 1.25) * S, y0 = y - 1 + k * 1.8 * S + (k ? 1 : 0);
-        mb.obox(x, y0, z, w, 1.8 * S + (k ? 0 : 1), w, rot, LIME, K.stone, y);
+        mb.obox(x, y0, z, w, 1.8 * S + (k ? 0 : 1), w, rot, LIME, K.plain, y);
       }
       for (let k = 0; k < 5; k++) {                                                            // the stair, one flight per tier
         const w = (9 - k * 1.25) * S, [sx, sz] = at(w + 0.5 * S, 0);
-        mb.obox(sx, y - 1, sz, 0.6 * S, (k + 1) * 1.8 * S + 1, 1.5 * S, rot, [0.7, 0.66, 0.57], K.stone, y);
+        mb.obox(sx, y - 1, sz, 0.6 * S, (k + 1) * 1.8 * S + 1, 1.5 * S, rot, [0.7, 0.66, 0.57], K.plain, y);
       }
       mb.obox(x, y + 9 * S, z, 2.4 * S, 2.4 * S, 2.2 * S, rot, RED, K.plain, y);
       flame(x, y + 11.4 * S, z, 1);
       break;
     }
     case "sphinx": {   // a votive column crowned by a sphinx, as the Naxians dedicated at Delphi
-      mb.obox(x, y - 1, z, 2.1 * S, 1.6, 2.1 * S, rot, MARBLE_D, K.stone, y);
-      mb.obox(x, y + 0.6, z, 1.5 * S, 0.6, 1.5 * S, rot, MARBLE_D, K.stone, y);
-      mb.cone(x, y + 1.2, z, 0.72 * S, 0.6 * S, 10 * S, 14, rot, MARBLE, K.stone, y, true);
-      mb.obox(x, y + 1.2 + 10 * S, z, 1.25 * S, 0.45 * S, 0.8 * S, rot, MARBLE, K.stone, y);   // Ionic capital
+      mb.obox(x, y - 1, z, 2.1 * S, 1.6, 2.1 * S, rot, MARBLE_D, K.plain, y);
+      mb.obox(x, y + 0.6, z, 1.5 * S, 0.6, 1.5 * S, rot, MARBLE_D, K.plain, y);
+      mb.cone(x, y + 1.2, z, 0.72 * S, 0.6 * S, 10 * S, 14, rot, MARBLE, K.plain, y, true);
+      mb.obox(x, y + 1.2 + 10 * S, z, 1.25 * S, 0.45 * S, 0.8 * S, rot, MARBLE, K.plain, y);   // Ionic capital
       const top = y + 1.2 + 10.45 * S, fx = Math.cos(rot), fz = Math.sin(rot);
       mb.blob(x - fx * 0.2 * S, top + 0.55 * S, z - fz * 0.2 * S, 0.95 * S, 0.55 * S, 0.45 * S, GOLD, K.glow, y, true, sd);   // body
       mb.blob(x + fx * 0.65 * S, top + 1.15 * S, z + fz * 0.65 * S, 0.32 * S, 0.42 * S, 0.3 * S, GOLD, K.glow, y, true, sd + 1);   // head
       mb.tri([x - fx * 0.1 * S, top + 0.9 * S, z - fz * 0.1 * S], [x - fx * 0.9 * S, top + 0.7 * S, z - fz * 0.9 * S], [x - fx * 0.6 * S, top + 1.8 * S, z - fz * 0.6 * S], null, GOLD, K.glow, y, [x + fz, top, z - fx]);   // wing
       break;
     }
+  }
+  // people: a few figures in the dress colours of the tradition gather near each monument (to scale: ~1.8 units)
+  const DRESS: Record<Culture, RGB[]> = {
+    greek: [[0.92, 0.9, 0.84], [0.28, 0.4, 0.62], [0.7, 0.32, 0.24]], polynesian: [[0.6, 0.38, 0.22], [0.82, 0.74, 0.55], [0.55, 0.16, 0.12]],
+    celtic: [[0.26, 0.42, 0.28], [0.5, 0.48, 0.44], [0.62, 0.52, 0.32]], norse: [[0.42, 0.3, 0.2], [0.55, 0.2, 0.16], [0.36, 0.4, 0.46]],
+    egyptian: [[0.94, 0.92, 0.86], [0.92, 0.9, 0.82], [0.2, 0.45, 0.62]], japanese: [[0.85, 0.2, 0.15], [0.94, 0.93, 0.9], [0.2, 0.24, 0.36]],
+    chinese: [[0.2, 0.32, 0.55], [0.7, 0.18, 0.16], [0.86, 0.76, 0.5]], hindu: [[0.92, 0.58, 0.18], [0.82, 0.2, 0.3], [0.94, 0.92, 0.86]],
+    aztec: [[0.94, 0.92, 0.86], [0.18, 0.55, 0.55], [0.75, 0.25, 0.18]],
+  };
+  const SKIN: RGB[] = [[0.55, 0.38, 0.28], [0.74, 0.55, 0.42], [0.42, 0.29, 0.21], [0.82, 0.64, 0.5]];
+  const n = 3 + Math.floor(r(90) * 3);
+  for (let k = 0; k < n; k++) {
+    const a = L.rot + 0.4 + k * (Math.PI * 2 / n) + (r(91 + k) - 0.5) * 0.5, d = L.r0 * (0.72 + 0.2 * r(97 + k));
+    const px = L.x + Math.cos(a) * d, pz = L.z + Math.sin(a) * d, py = T.height(px, pz), h = 1.65 + 0.25 * r(103 + k);
+    if (py < T.waterY + 0.5) continue;
+    const robe = DRESS[L.culture][k % 3], skin = SKIN[Math.floor(r(109 + k) * SKIN.length)];
+    mb.cone(px, py - 0.05, pz, 0.34, 0.16, h * 0.78, 8, a, robe, K.plain, y, true);                    // robe
+    mb.blob(px, py + h * 0.86, pz, 0.15, 0.18, 0.15, skin, K.plain, y, true, sd + k, false);            // head
+    if (r(117 + k) < 0.4) mb.obox(px + 0.32 * Math.cos(a + 1.3), py, pz + 0.32 * Math.sin(a + 1.3), 0.035, h * 1.05, 0.035, a, [0.4, 0.3, 0.2], K.plain, y);   // staff
   }
 }
