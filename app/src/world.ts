@@ -359,7 +359,7 @@ export type RealmName = "calm" | "stress" | "anxiety" | "anger" | "low_mood" | "
 type Realm = { title: string; line: string; culture: Culture; sky: string; hor: string; tint: [number, number, number]; sat: number; bright: number;
   fog: number; cloud: number; storm: number; foam: number; water: string; night: number; weather: WType };
 export const REALMS: Record<RealmName, Realm> = {
-  calm: { title: "Hawaiki", line: "Calm. Clear water and a steady wind.", culture: "polynesian", sky: "#76b2e6", hor: "#ffe0ad", tint: [1.05, 1, 0.92], sat: 1.12, bright: 1.05, fog: 0.8, cloud: 0.12, storm: 0, foam: 0, water: "#1fb5c0", night: 0, weather: "fireflies" },
+  calm: { title: "Hawaiki", line: "Calm. Clear water and a steady wind.", culture: "polynesian", sky: "#76b2e6", hor: "#ffe0ad", tint: [1.05, 1, 0.92], sat: 1.12, bright: 1.05, fog: 0.8, cloud: 0.12, storm: 0, foam: 0, water: "#1fb5c0", night: 0, weather: "none" },   // calm is clear air
   stress: { title: "The Strait of Scylla", line: "Stress. Rough water between the rocks.", culture: "greek", sky: "#3b4552", hor: "#878d93", tint: [0.92, 0.96, 1.05], sat: 0.75, bright: 0.85, fog: 1.6, cloud: 0.92, storm: 0.85, foam: 1, water: "#3e4d57", night: 0, weather: "rain" },
   anxiety: { title: "The Mists of Avalon", line: "Anxiety. Fog hides the way.", culture: "celtic", sky: "#8d969c", hor: "#c9cdd0", tint: [0.97, 0.98, 1], sat: 0.6, bright: 0.95, fog: 4.5, cloud: 0.6, storm: 0.1, foam: 0.2, water: "#5a6b73", night: 0, weather: "none" },
   anger: { title: "Muspelheim", line: "Anger. Fire on the water.", culture: "norse", sky: "#5a1d12", hor: "#ff7a3d", tint: [1.15, 0.88, 0.78], sat: 1.15, bright: 0.9, fog: 1.3, cloud: 0.55, storm: 0.4, foam: 0.6, water: "#5a2a22", night: 0, weather: "embers" },
