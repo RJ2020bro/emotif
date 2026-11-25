@@ -816,7 +816,7 @@ export class World {
     const P = this.pos, T = this.terrain;
     T.claimRegions(P.x, P.z, 130, this.cultureNow());   // waters coming into view take the tradition of the state you are in
     if (this.specV.landmarks <= 0) { this.goal = null; return; }
-    for (const L of T.landmarksNear(P.x, P.z, DISCOVER_R)) {
+    for (const L of T.landmarksNear(P.x, P.z, this.shipMode ? DISCOVER_R * 1.6 : DISCOVER_R)) {
       if (this.found.has(L.key)) continue;
       const d: Discovery = { name: L.name, kind: L.kind, x: L.x, z: L.z, t: this.time, v: this.cur.v, a: this.cur.a };
       this.found.set(L.key, d);
@@ -1081,7 +1081,8 @@ export class World {
     let speed = 0;
     if (this.explore) {
       // a steady course: the mind doesn't have to steer. Focus fills the sails; near an unlit beacon the ship heaves to
-      speed = (4.5 + 2.5 * ar * m + (this.control.command === "focus" ? 3 : 0)) * motion;
+      // the wind follows the mood: a pleasant state fills the sails, an unpleasant one is a headwind
+      speed = this.shipMode ? (3 + 3.4 * va * m + 1.4 * ar * m + 2 * (1 - m)) * motion : (4.5 + 2.5 * ar * m) * motion;
       if (this.slowT > 0) speed *= 0.25;                 // scraped the rocks
       if (!this.goal) this.heading += (Math.sin(this.time * 0.13) * 0.5 + Math.sin(this.time * 0.051 + 1.3) * 0.5) * 0.25 * dt;
       if (!this.specV.terrain.islands) {         // keep to land: steer toward higher ground when the sea is ahead
@@ -1089,24 +1090,15 @@ export class World {
         if (ahead(this.heading) <= T.waterY + 0.01) this.heading += (ahead(this.heading + 0.6) >= ahead(this.heading - 0.6) ? 1 : -1) * 0.9 * dt;
       }
     }
-    const clearing = this.hazards.some(h => h.state === "dodged" && (h.x - this.pos.x) * Math.cos(this.heading) + (h.z - this.pos.z) * Math.sin(this.heading) > -6);
-    if (this.explore && this.goal && !this.keys.size && !clearing) {   // set a course for the next landmark (not while passing rocks)
+    if (this.shipMode && this.explore && !this.keys.size) speed *= this.navigate(dt);   // pilot: open water toward the next landmark
+    else if (this.explore && this.goal && !this.keys.size) {   // on land: head for the next landmark
       const want = Math.atan2(this.goal.z - this.pos.z, this.goal.x - this.pos.x);
       const d = Math.atan2(Math.sin(want - this.heading), Math.cos(want - this.heading));
       this.heading += d * Math.min(1, dt * (this.shipMode ? 0.6 : 0.4));
     }
-    const wet = (a: number, r: number) => T.surface(this.pos.x + Math.cos(a) * r, this.pos.z + Math.sin(a) * r) <= T.waterY + 0.05;
-    if (this.shipMode && this.explore) {               // a ship keeps to the sea: turn toward open water before the shore
-      if (!wet(this.heading, 8) || !wet(this.heading, 15)) {
-        let side = 0;
-        for (const s of [0.5, 1, 1.6]) { side += (wet(this.heading + s, 12) ? 1 : 0) - (wet(this.heading - s, 12) ? 1 : 0); }
-        this.heading += (side >= 0 ? 1 : -1) * 1.3 * dt;
-      }
-    }
     if (this.keys.has("f")) speed = Math.max(speed, 6) * 1.8;
     if (this.keys.has("b")) speed = -4;
     this.heading -= turn * 1.4 * dt;
-    if (this.dodgeT > 0) this.heading += this.dodgeDir * 0.4 * dt;   // steering clear of rocks (focus)
     const nx = this.pos.x + Math.cos(this.heading) * speed * dt, nz = this.pos.z + Math.sin(this.heading) * speed * dt;
     if (this.shipMode && T.surface(nx, nz) > T.waterY + 0.05) {   // aground: stop and come about
       this.stuck += dt;
@@ -1123,6 +1115,51 @@ export class World {
     const alt = this.shipMode ? T.waterY + MAST : T.surface(this.pos.x, this.pos.z) + 3.5 + 2.5 * va * m;
     this.pos.y += (alt - this.pos.y) * Math.min(1, dt * 2);
   }
+
+  /** The ship's pilot. Every 0.15 s it scores headings within ±100° of the bow: open water along the heading
+   * (shore and rocks it has decided to avoid count as obstacles) and closeness to the course for the next
+   * landmark's anchorage. It turns smoothly toward the best and slows when the water ahead is tight. Returns a
+   * speed factor. Rocks still "ahead" (not yet avoided) are not obstacles: avoiding them is up to the mind. */
+  private navigate(dt: number): number {
+    const T = this.terrain, P = this.pos;
+    this.navT -= dt;
+    if (this.navT <= 0) {
+      this.navT = 0.15;
+      const rocks = this.hazards.filter(h => h.state !== "ahead");
+      const clear = (a: number) => {
+        const cx = Math.cos(a), cz = Math.sin(a);
+        for (let r = 3; r <= 48; r += 3) {
+          const x = P.x + cx * r, z = P.z + cz * r;
+          if (T.surface(x, z) > T.waterY - 0.4) return r - 3;                 // shallows count as shore
+          for (const h of rocks) if (Math.hypot(h.x - x, h.z - z) < 8) return r - 3;
+        }
+        return 48;
+      };
+      let want = this.heading;
+      if (this.goal) {
+        if (!this.goalPt || this.goalPtKey !== this.goal.key) {
+          this.goalPt = T.spawnSea(this.goal.x, this.goal.z, 10); this.goalPtKey = this.goal.key;   // anchorage off the landmark
+        }
+        if (this.goalPt) want = Math.atan2(this.goalPt.z - P.z, this.goalPt.x - P.x);
+      }
+      let best = this.heading, bs = -1e9;
+      for (let k = -9; k <= 9; k++) {
+        const a = this.heading + k * 0.19, c = clear(a);
+        const s = 1.3 * Math.min(1, c / 36) + 0.7 * Math.cos(a - want) - 0.03 * Math.abs(k) - (c < 12 ? 2 : 0);
+        if (s > bs) { bs = s; best = a; }
+      }
+      this.navWant = best;
+      this.navClear = clear(this.heading);
+    }
+    const d = Math.atan2(Math.sin(this.navWant - this.heading), Math.cos(this.navWant - this.heading));
+    this.heading += clamp(d, -1, 1) * Math.min(1, dt * 1.6);
+    return clamp((this.navClear - 4) / 14, 0.45, 1);
+  }
+  private navT = 0;
+  private navWant = 0;
+  private navClear = 48;
+  private goalPt: { x: number; z: number } | null = null;
+  private goalPtKey = "";
 
   private updateWorld(dt: number, motion: number) {
     const v = this.cur.v, a = this.cur.a, ar = (a + 1) / 2, va = (v + 1) / 2, neg = Math.max(0, -v), pos = Math.max(0, v);
@@ -1330,8 +1367,6 @@ export class World {
   gameOn = true;
   private hazards: { g: THREE.Group; x: number; z: number; state: "ahead" | "dodged" | "hit" }[] = [];
   private nextHazardAt = 25;
-  private dodgeT = 0;
-  private dodgeDir = 1;
   private slowT = 0;
   private lastCmd = "";
   private relaxCool = 0;
@@ -1343,6 +1378,7 @@ export class World {
   private rockMat: THREE.Material | null = null;
   /** Rocks dodged and hit, and each recovery from an unpleasant realm (seconds from entering it to calm). */
   dodges = 0;
+  calmDodges = 0;
   hits = 0;
   recoveries: { realm: RealmName; seconds: number; t: number }[] = [];
   /** 0-1 progress of calming the current unpleasant realm (null when the realm is not one to calm). */
@@ -1360,9 +1396,15 @@ export class World {
 
   /** Put a cluster of sea rocks on the course ahead (also used by tests). Returns false if no open water there. */
   spawnHazard(dist = 55): boolean {
-    const T = this.terrain, P = this.pos, a = this.heading + (Math.random() - 0.5) * 0.25;
-    const x = P.x + Math.cos(a) * dist, z = P.z + Math.sin(a) * dist;
-    for (let q = 0; q < 6; q++) if (T.surface(x + Math.cos(q) * 7, z + Math.sin(q) * 7) > T.waterY + 0.05) return false;
+    const T = this.terrain, P = this.pos;
+    const open = (x: number, z: number) => { for (let q = 0; q < 6; q++) if (T.surface(x + Math.cos(q) * 7, z + Math.sin(q) * 7) > T.waterY + 0.05) return false; return true; };
+    let x = 0, z = 0, ok = false;
+    for (const dd of [dist, dist - 8, dist + 8]) for (const da of [0, 0.18, -0.18, 0.32, -0.32]) {   // somewhere ahead in open water
+      if (ok) break;
+      const a = this.heading + da + (Math.random() - 0.5) * 0.1;
+      x = P.x + Math.cos(a) * dd; z = P.z + Math.sin(a) * dd; ok = open(x, z);
+    }
+    if (!ok) return false;
     if (!this.rockGeo) {
       this.rockGeo = new THREE.IcosahedronGeometry(1, 0);
       this.rockMat = new THREE.MeshLambertMaterial({ color: 0x5d6166, flatShading: true });
@@ -1387,7 +1429,6 @@ export class World {
     const P = this.pos, cmd = this.control.command, edge = cmd !== this.lastCmd;
     this.lastCmd = cmd;
     this.relaxCool = Math.max(0, this.relaxCool - dt);
-    this.dodgeT = Math.max(0, this.dodgeT - dt);
     this.slowT = Math.max(0, this.slowT - dt);
     const play = this.interactive && this.gameOn && this.shipMode;
     // rocks on the course
@@ -1396,12 +1437,14 @@ export class World {
     }
     const ahead = play ? this.hazardAhead() : null;
     if (ahead && cmd === "focus" && edge) {                 // focus: steer clear
-      const side = (ahead.x - P.x) * -Math.sin(this.heading) + (ahead.z - P.z) * Math.cos(this.heading);
-      this.dodgeDir = side > 0 ? -1 : 1;
-      this.dodgeT = 2.6;
       ahead.state = "dodged";
       this.dodges++;
       this.onInteract?.("dodge", { x: ahead.x, z: ahead.z, t: this.time, placed: this.dodges });
+    }
+    // a calm mind sees the rocks in time and the pilot steers round them; a stressed one needs to focus
+    const calmness = clamp(0.5 + 0.6 * this.cur.v - 0.5 * Math.max(0, this.cur.a), 0, 1);
+    if (ahead && ahead.state === "ahead" && Math.hypot(ahead.x - P.x, ahead.z - P.z) < 30 && calmness > 0.55) {
+      ahead.state = "dodged"; this.calmDodges++;
     }
     for (let i = this.hazards.length - 1; i >= 0; i--) {
       const h = this.hazards[i], d = Math.hypot(h.x - P.x, h.z - P.z);
