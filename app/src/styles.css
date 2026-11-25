@@ -430,3 +430,16 @@ ol.wiz > li[data-state="todo"] { border-style: dashed; }
 .readout .word { font-size: clamp(26px, 2.6vw, 34px); }
 .readout .sub { font-size: 12.5px; }
 .mind-hud #mindNeg { background: #9fc0de; }
+.src-more { grid-column: 1 / -1; margin: 10px 0 0; font: 600 13px var(--font-sans); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.sec-h { font: 600 22px var(--font-display); margin: 28px 0 10px; }
+.findings { max-width: 900px; }
+.find-list { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.find { display: grid; grid-template-columns: 170px 1fr; gap: 18px; padding: 16px 2px; border-bottom: 1px solid var(--line); }
+.find-n { font: 600 20px/1.25 var(--font-display); color: var(--accent); }
+.find b { font: 600 17px var(--font-sans); }
+.find p { margin: 4px 0; color: var(--ink-2); font-size: 15px; line-height: 1.55; max-width: 64ch; }
+.find small { color: var(--muted); font-size: 12.5px; }
+.refs { margin: 14px 0 6px; font-size: 13.5px; color: var(--ink-2); }
+.refs summary { cursor: pointer; font-weight: 600; min-height: 32px; }
+.refs li { margin: 4px 0; }
+@media (max-width: 640px) { .find { grid-template-columns: 1fr; gap: 4px; } }

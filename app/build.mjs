@@ -29,6 +29,8 @@ const figFiles = {
   brain: "results/brain_gameemo_v2/fig_brain_decoder.png",
   brainmap: "results/brain_gameemo_v2/fig_brain_map.png",
   states: "results/states/fig_states.png",
+  leaderboard: "results/leaderboard/fig_leaderboard.png",
+  closedloop: "results/closed_loop/fig_closed_loop.png",
 };
 const figs = {};
 for (const [k, rel] of Object.entries(figFiles)) {

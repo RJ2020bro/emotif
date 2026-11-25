@@ -647,8 +647,8 @@ function runEngine(channels, model, seconds, va, artifactsEvery = 0) {
     const expect = ["Resting baseline", ...labels.filter((l, i) => i === 0 || l !== labels[i - 1]), labels[0]];
     assert.deepEqual(seen, expect, "story order, then it loops");
     assert.ok(Math.abs(So.STORY_SECONDS - 180) <= 30, `about three minutes (${So.STORY_SECONDS} s)`);
-    assert.ok(cmds.get("Focus: kindle the lantern").has("focus") && cmds.get("Relax: light the beacon").has("relax"), JSON.stringify([...cmds].map(([k, v]) => [k, [...v]])));
-    console.log(`story mode OK: ${labels.length} segments over ${So.STORY_SECONDS} s, loops, focus segment kindles the lantern and relax segment lights the beacon`);
+    assert.ok(cmds.get("Focus: steer clear").has("focus") && cmds.get("Relax: calm the sea").has("relax"), JSON.stringify([...cmds].map(([k, v]) => [k, [...v]])));
+    console.log(`story mode OK: ${labels.length} segments over ${So.STORY_SECONDS} s, loops, focus and relax segments issue focus and relax`);
   }
   // valence / arousal targeting still reads back through the neuro-markers (the browser test relies on it)
   {

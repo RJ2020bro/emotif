@@ -71,11 +71,11 @@ function download(name: string, text: string, type = "application/json") {
 /** The two participant sessions of the approved human study, as run by the guided panel in Study. */
 const WIZ_MAIN = {
   1: { pid: "states", label: "Session 1", task: "Personal calibration", minutes: 40,
-       what: "Blink and jaw check, then 18 one-minute tasks (calm, stress, worry, annoyance, low mood, sleepy) with a 0\u201310 rating after each.",
+       what: "Face check, then 18 one-minute mood tasks, each rated 0\u201310.",
        say: "Say: \u201cYou'll do short one-minute tasks. After each one, rate how strongly you felt it. Keep your head and jaw still while a task runs. You can stop at any time.\u201d About 28 minutes.",
        finish: "Ask how they feel. Remove the headset and wipe the sensors with an alcohol wipe. Book Session 2 on a different day. The personal states for this code are saved on this computer." },
   2: { pid: "closedloop", label: "Session 2", task: "Stress and recovery", minutes: 25,
-       what: "Blink and jaw check, then three rounds of 1 minute of arithmetic and 2.5 minutes in the 3-D world, with a rating after each round.",
+       what: "Face check, then 3 rounds: 1 min arithmetic, 2.5 min in the world, a rating.",
        say: "Say: \u201cThree rounds: a minute of fast mental arithmetic, then a few minutes of watching the world and relaxing. Rate how you feel after each round.\u201d About 13 minutes. Don't say which round is which.",
        finish: "Read the debrief: \u201cIn one of the three landscape rounds, the landscape followed a random path instead of your headband. I didn't tell you which one beforehand so I could compare it fairly with the other two. Your data still helps; if you'd rather I delete it, tell me now or email me. I can't tell you what your recording showed, because the study can't diagnose anything. How are you feeling?\u201d Then remove the headset and wipe the sensors." },
 } as const;
@@ -188,7 +188,7 @@ class App {
       this.world.interactive = store.get("worldMind", true);
       this.world.onInteract = (type, info) => {
         this.marker(`mind_${type}`, info);
-        this.announcer?.say(`mind:${type}`, type === "lift" ? "Lantern kindled" : `Beacon lit. ${info.placed} burning`, 2);
+        this.announcer?.say(`mind:${type}`, type === "dodge" ? "Steered clear" : type === "hit" ? "Hit the rocks" : "Calmer", 2);
       };
       ($("worldExplore") as HTMLInputElement).checked = this.world.explore;
       this.paintWorldStatus();
@@ -335,12 +335,11 @@ class App {
       h("div", { class: "welcome-head" },
         h("h2", { id: "welcomeTitle", tabindex: "-1" }, "Start here"),
         h("button", { class: "btn small ghost", type: "button", onclick: () => this.showWelcome(false) }, "Close")),
-      h("p", {}, "Emotif reads brain signals (EEG), estimates the mood behind them and turns that mood into a 3-D world. How do you want to begin?"),
+      h("p", {}, "Your brain state shapes the sea. Pick a start."),
       h("div", { class: "welcome-choices" },
-        choice("demo", "live", "Try it with the demo signal", "A generated Emotiv Insight stream sails through all six states, each opening a new chapter of the voyage. No headset needed."),
-        choice("headset", "setup", "Connect my headset", "Pick your headset (Muse, Emotiv, OpenBCI and more) and check that every sensor touches the skin."),
-        choice("study", "study", "Run a participant session", "Step-by-step guide for a study session: consent, headset fit, tasks and ratings.")),
-      h("p", { class: "welcome-foot" }, "You can open this panel again with Start here at the top."));
+        choice("demo", "live", "Watch the demo", "A generated Insight stream through all six states."),
+        choice("headset", "setup", "Connect the Insight", "Pair it and check sensor contact."),
+        choice("study", "study", "Run a session", "Guided study: consent, fit, tasks, ratings.")));
   }
 
   // ---------------------------------------------------------------- live view
@@ -376,7 +375,7 @@ class App {
           h("div", { class: "base-card", id: "baseCard", hidden: true },
             h("div", { class: "base-top" }, h("b", {}, "Resting baseline"), h("span", { class: "num", id: "baseTime" }, "")),
             h("div", { class: "meter" }, h("i", { id: "baseBar" })),
-            h("p", { id: "baseText" }, "Sit still with your eyes open and your jaw relaxed. Emotif is learning what your signal looks like at rest."),
+            h("p", { id: "baseText" }, "Sit still, eyes open, jaw relaxed."),
             h("div", { class: "fit-chips", id: "baseFit" }),
             h("p", { class: "err", id: "baseErr", hidden: true })),
           h("div", { class: "demo-caption", id: "demoCaption", hidden: true },
@@ -417,7 +416,7 @@ class App {
           fold("Brain map", "band power on the scalp",
             h("label", { class: "field" }, "Brain rhythm", bandSel),
             h("canvas", { class: "plot", id: "topo" }),
-            h("p", { class: "note" }, "Each rhythm's strength compared with your resting baseline (red higher, blue lower). The ring colour shows how well each sensor touches the skin.")),
+            h("p", { class: "note" }, "Each rhythm vs your baseline (red up, blue down). Ring = sensor contact.")),
           fold("Raw brain signals", "EEG traces, cleanup and band power",
             seg("traceMode", [["clean", "Cleaned"], ["filtered", "Before cleaning"]], "clean", v => { this.traceMode = v as "clean" | "filtered"; }),
             h("canvas", { class: "plot", id: "traces" }),
@@ -443,9 +442,9 @@ class App {
       } }), h("span", {}, "Walk around on its own (or click the world and steer with the arrow keys or W A S D)")),
       h("label", { class: "check" }, h("input", { type: "checkbox", id: "worldMind", checked: store.get("worldMind", true), onchange: e => {
         this.world.interactive = (e.target as HTMLInputElement).checked; store.set("worldMind", this.world.interactive);
-      } }), h("span", {}, "Light the beacons with your brain: near a landmark, focus to kindle the ship's lantern, then relax to send the flame to its beacon (uses the alpha rhythm; face movement is ignored)")),
+      } }), h("span", {}, "Brain control: focus steers clear of rocks, relaxing calms the sea (alpha rhythm; face ignored)")),
       h("details", { class: "more" }, h("summary", {}, "How the world is made"),
-        h("p", { class: "note" }, "Each world is grown from your resting brain signal: when the baseline finishes, its spectrum seeds the land, so no two sessions are the same. Photographs from an open image library give the ground and sky their texture (credits in How it works).")));
+        h("p", { class: "note" }, "Each world is seeded from your resting brain signal, so no two are the same.")));
   }
 
   setWorldStyle(st: Style | "auto") {
@@ -491,7 +490,7 @@ class App {
       h("b", {}, WIZ_MAIN[n].label), h("span", {}, WIZ_MAIN[n].what), h("span", { class: "meta" }, `about ${WIZ_MAIN[n].minutes} min with setup`));
     return h("section", { class: "view", tabindex: "0", "data-view": "study", hidden: true }, this.subNav("study"),
       h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "Run a participant session"),
-        h("p", {}, "Follow the steps in order. Each step turns green when it's done; the next one unlocks."))),
+        h("p", {}, "Follow the steps in order."))),
       h("div", { class: "cols-2" },
         h("div", { class: "cards" },
           h("section", { class: "panel", id: "wizard" },
@@ -509,7 +508,7 @@ class App {
                 h("label", { class: "check" }, h("input", { type: "checkbox", id: "consent", onchange: () => this.paintWizard() }),
                   h("span", {}, "Signed consent is on file (and parent or guardian permission plus assent if under 18), as approved by the IRB."))),
               h("li", { id: "wiz3" }, h("b", {}, "Fit the headset"),
-                h("p", { class: "note" }, "Seat the arms behind the ears and the front sensors (AF3, AF4) on the forehead; press each sensor gently against the skin. Hair under a sensor is the usual cause of grey or red. Ask them to sit still with the jaw relaxed."),
+                h("p", { class: "note" }, "Arms behind the ears, AF3/AF4 on the forehead, press each sensor to the skin. Hair is the usual problem."),
                 h("label", { class: "check" }, h("input", { type: "checkbox", id: "fitOk", onchange: () => this.paintWizard() }),
                   h("span", {}, "All 5 sensors are green in the EMOTIV Launcher."))),
               h("li", { id: "wiz4" }, h("b", {}, "Blink and jaw check (2 min)"),
@@ -537,7 +536,7 @@ class App {
             h("p", { class: "note", id: "studyNote" }, "Uses the participant code and consent box above.")),
           h("section", { class: "panel" }, title("h2", "Daily check-ins", "resting markers vs mood and sleep"), h("div", { id: "checkinReport" })),
           h("section", { class: "panel" }, h("h2", {}, "Tips for the session"),
-            h("p", { class: "note" }, "Stay out of the participant's view and keep the room quiet. If they ask about the world, say it changes on its own; don't name the condition. Press Stop session at any time; data recorded so far is kept.")))));
+            h("p", { class: "note" }, "Stay out of view, keep it quiet, never name the condition. Stop any time; data so far is kept.")))));
   }
 
   // ---------------------------------------------------------------- guided participant session
@@ -674,9 +673,9 @@ class App {
             h("p", { class: "note" }, "Every command passes a workspace limit, a speed limit and a 1-second watchdog. If the browser stops sending, the arm holds still.")),
           h("section", { class: "panel" }, title("h2", "What the arm does", "control mode"),
             seg("armMode", [["embody", "Embody"], ["draw", "Draw"], ["intent", "Intent"], ["manual", "Manual"]], "embody", v => this.setArmMode(v as ArmMode)),
-            h("div", { id: "modeEmbody" }, h("p", { class: "note" }, "The arm's posture follows the decoded state: lifted and open when pleasant, low and closed when unpleasant; it sways faster with higher arousal.")),
+            h("div", { id: "modeEmbody" }, h("p", { class: "note" }, "Pleasant: arm lifts and opens. Unpleasant: low and closed. Energy: faster sway.")),
             h("div", { id: "modeDraw", hidden: true, class: "cards" },
-              h("p", { class: "note" }, "Put a pen in the gripper. The arm plots the session's affect on paper: higher arousal further away, more pleasant to the right. With the pen down, lower the pen-down height a few millimetres at a time until the tip just touches the paper."),
+              h("p", { class: "note" }, "Pen in the gripper: the arm plots the session (energy = distance, pleasant = right)."),
               h("div", { class: "row" },
                 num("drawCx", "Centre x (mm)", this.arm.draw.cx, 5, v => { this.arm.draw.cx = v; }),
                 num("drawSize", "Square (mm)", this.arm.draw.size, 10, v => { this.arm.draw.size = v; }),
@@ -685,7 +684,7 @@ class App {
                 h("button", { class: "btn", id: "penBtn", onclick: () => { this.arm.draw.lifted = !this.arm.draw.lifted; this.marker("pen", this.arm.draw.lifted ? "up" : "down"); } }, "Pen down"),
                 h("button", { class: "btn ghost", onclick: () => { this.arm.trail = []; } }, "Clear drawing"))),
             h("div", { id: "modeIntent", hidden: true, class: "cards" },
-              h("p", { class: "note" }, "Double-blink to step to the next action. Clench your jaw to run it; relax to stop. These use eye and jaw muscle signals picked up by the headset."),
+              h("p", { class: "note" }, "Double-blink: next action. Clench: run it. Relax: stop."),
               h("div", { class: "big-action", id: "intentAction" }, INTENT_ACTIONS[0]),
               wheel,
               h("div", { class: "field" }, "Jaw activity", h("div", { class: "meter", id: "clenchMeter" }, h("i"))),
@@ -709,7 +708,7 @@ class App {
   viewModels(): HTMLElement {
     return h("section", { class: "view", tabindex: "0", "data-view": "models", hidden: true }, this.subNav("models"),
       h("div", { class: "view-head" }, h("div", {}, title("h1", "Mood decoders", "models"),
-        h("p", {}, "A decoder turns brain signals into a mood estimate. Every decoder reads the same 17 scalp regions, so one decoder works with any headset; regions your headset doesn't cover are skipped."))),
+        h("p", {}, "A decoder turns brain signals into a mood estimate. All read the same 17 scalp regions, so any headset works."))),
       h("div", { class: "cols-2" },
         h("div", { class: "cards" },
           h("section", { class: "panel" }, title("h2", "Choose a decoder", "the first one is recommended"), h("div", { class: "cards", id: "modelList" }),
@@ -733,10 +732,10 @@ class App {
   // ---------------------------------------------------------------- setup view
   viewSetup(): HTMLElement {
     const montageSel = h("select", { id: "simMontage", onchange: e => { this.sim.montage = (e.target as HTMLSelectElement).value; store.set("simMontage", this.sim.montage); if (this.sourceKind === "sim") this.useSource("sim"); } });
-    Object.entries(SIM_MONTAGES).forEach(([k, m]) => montageSel.append(h("option", { value: k, selected: k === store.get("simMontage", "lab8") }, m.label)));
-    this.sim.montage = store.get("simMontage", "lab8");
+    Object.entries(SIM_MONTAGES).forEach(([k, m]) => montageSel.append(h("option", { value: k, selected: k === store.get("simMontage", "emotiv_insight") }, m.label)));
+    this.sim.montage = store.get("simMontage", "emotiv_insight");
     const simMode = h("select", { id: "simMode", onchange: e => { this.sim.mode = (e.target as HTMLSelectElement).value as SimMode; } },
-      h("option", { value: "tour" }, "Guided tour: rest, then the four states"),
+      h("option", { value: "tour" }, "Tour: the four mood quadrants"),
       h("option", { value: "manual" }, "Manual: drag on the affect map"),
       h("option", { value: "participant" }, "Virtual participant: responds to the world"),
       h("option", { value: "story" }, "Story: a 3-minute voyage through all six states, lighting beacons on the way"));
@@ -747,23 +746,24 @@ class App {
     const datalist = h("datalist", { id: "electrodeNames" });
     knownNames().filter(n => /^[A-Z]+[0-9Z]+$/.test(n)).sort().forEach(n => datalist.append(h("option", { value: n.replace(/Z$/, "z").replace(/^FP/, "Fp") })));
     return h("section", { class: "view", tabindex: "0", "data-view": "setup", hidden: true },
-      h("div", { class: "view-head" }, h("div", {}, title("h1", "Headset setup"), h("p", {}, "Three steps: choose where the brain signal comes from, check that every sensor touches the skin, then check where each sensor sits.")),
+      h("div", { class: "view-head" }, h("div", {}, title("h1", "Headset setup"), h("p", {}, "Built for the Emotiv Insight: connect, check contact, go.")),
         h("button", { type: "button", class: "btn small", onclick: () => this.go("arm") }, "Robot arm (optional)")),
       h("div", { class: "setup-steps" },
         h("section", { class: "panel step step-wide" }, h("div", { class: "step-h" }, h("span", { class: "step-n", "aria-hidden": "true" }, "1"), title("h2", "Choose where the signal comes from", "Step 1 of 3 · signal source")),
-          h("p", { class: "note" }, "Pick your headset and press Use this source. No headset? The simulator makes a realistic practice signal."),
+          h("p", { class: "note" }, "Pick a source, then Use this source."),
           h("div", { class: "cards source-grid", id: "sourceCards" },
-            card("sim", "Simulator", [h("span", {}, "Synthetic EEG for demos and testing, including blinks and jaw clenches."),
-              h("label", { class: "field" }, "Electrode layout", montageSel), h("label", { class: "field" }, "Behaviour", simMode),
-              h("p", { class: "note", id: "simStory" })]),
-            card("muse", "Muse 2 / Muse S over Bluetooth", [h("span", {}, "Direct from the browser in Chrome or Edge. No other software needed.")]),
-            card("emotiv", "Emotiv Insight / EPOC X", [h("span", {}, "Through the EMOTIV Launcher on this computer (Cortex). Needs a free Cortex app ID and an Emotiv licence that includes raw EEG."),
+            card("emotiv", "Emotiv Insight (study headset)", [h("span", {}, "Via the EMOTIV Launcher. Needs a Cortex app ID and a raw-EEG licence."),
               h("div", { class: "row" },
                 h("label", { class: "field" }, "Client ID", h("input", { type: "text", id: "cxId", autocomplete: "off", value: store.get("cxId", "") })),
                 h("label", { class: "field" }, "Client secret", h("input", { type: "password", id: "cxSecret", autocomplete: "off", value: store.get("cxSecret", "") }))),
               h("label", { class: "field" }, "Headset ID (blank = first Insight, else first headset)", h("input", { type: "text", id: "cxHeadset", placeholder: "INSIGHT-XXXXXXXX", value: store.get("cxHeadset", "") })),
               h("p", { class: "note" }, "The ID and secret are kept in this browser only.")]),
-            card("cyton", "OpenBCI Cyton over USB", [h("span", {}, "Direct from the browser (Web Serial) in Chrome or Edge: plug in the dongle, no other software. 8 channels at 250 Hz; rename electrodes on the right.")]),
+            card("sim", "Practice signal", [h("span", {}, "Generated Insight-style EEG for demos and practice."),
+              h("label", { class: "field" }, "Electrode layout", montageSel), h("label", { class: "field" }, "Behaviour", simMode),
+              h("p", { class: "note", id: "simStory" })]),
+            h("h3", { class: "src-more" }, "Other headsets"),
+            card("muse", "Muse 2 / Muse S over Bluetooth", [h("span", {}, "Direct from the browser in Chrome or Edge. No other software needed.")]),
+            card("cyton", "OpenBCI Cyton over USB", [h("span", {}, "USB dongle, Chrome or Edge. 8 channels at 250 Hz.")]),
             card("server", "Headset through the Emotif server", [h("span", { id: "serverCardNote" }, "40 boards via BrainFlow: OpenBCI, Muse, Neurosity, g.tec Unicorn, ANT Neuro, Mentalab, BrainBit, FreeEEG and more."),
               h("label", { class: "field" }, "Board", boardSel),
               h("div", { class: "row" },
@@ -781,7 +781,7 @@ class App {
           h("canvas", { class: "plot topo-lg", id: "fitTopo" }),
           h("ul", { class: "fit-list", id: "fitList" })),
         h("section", { class: "panel step" }, h("div", { class: "step-h" }, h("span", { class: "step-n", "aria-hidden": "true" }, "3"), title("h2", "Tell Emotif where each sensor sits", "Step 3 of 3 · electrode names (10-20 system)")),
-          h("p", { class: "note" }, "Most headsets fill this in for you. If a name shows unknown, type its 10-20 position (for example Fp1 or O2) so the decoder knows where it sits; unknown names are ignored."),
+          h("p", { class: "note" }, "Usually automatic. If a name shows unknown, type its 10-20 position (e.g. Fp1)."),
           h("div", { id: "montageTable", class: "table-wrap" }), datalist,
           h("canvas", { class: "plot topo-lg", id: "montageTopo" }),
           h("p", { class: "note", id: "montageCov" }))),
@@ -803,16 +803,16 @@ class App {
           h("label", { class: "check" }, h("input", { type: "checkbox", id: "cleanDet", checked: this.engine.settings.cleaning.detector, onchange: () => this.setCleaning() }),
             h("span", {}, "AI artifact detector: leave out channels with eye or muscle activity")),
           h("button", { class: "btn", onclick: () => { this.engine.resetCalibration(); this.world.clearStrata(); this.marker("recalibrate", ""); } }, "Restart the baseline now"),
-          h("p", { class: "note" }, "Pipeline: 0.5 Hz high-pass and 50/60 Hz notch, then ASR repairs eye, muscle and movement bursts using statistics learned from your baseline, then the AI detector checks every channel of every 2-second window. Changing these starts a new baseline.")),
+          h("p", { class: "note" }, "Filter, then ASR repairs blinks and muscle bursts, then the detector flags what is left.")),
         h("section", { class: "panel" }, title("h2", "Display and sound"),
           h("label", { class: "check" }, h("input", { type: "checkbox", id: "reduceMotion", checked: this.world.reducedMotion, onchange: e => { this.world.reducedMotion = (e.target as HTMLInputElement).checked; store.set("reducedMotion", this.world.reducedMotion); } }),
             h("span", {}, "Reduce motion in the 3-D world")),
           h("label", { class: "check" }, h("input", { type: "checkbox", id: "sonify", onchange: e => this.setSound((e.target as HTMLInputElement).checked) }),
             h("span", {}, "Play the mood as sound (pitch and chord follow how pleasant it is, the pulse follows energy)")),
-          h("p", { class: "note" }, "Screen readers hear the state when it changes and holds for 5 seconds, at most every 10 seconds. The world's brightness can't change fast enough to flash (fewer than 3 flashes per second, WCAG 2.3.1), even if the decoder jumps."),
+          h("p", { class: "note" }, "Screen readers hear state changes (at most every 10 s). Brightness can't flash (WCAG 2.3.1)."),
           h("p", { class: "note" }, "Theme follows your system; switch it with the button at the top right.")),
         h("section", { class: "panel" }, title("h2", "Privacy and safety"),
-          h("p", { class: "note" }, "EEG never leaves this computer. Recordings use participant codes, not names. Emotion estimates from EEG are uncertain: treat them as research measurements, never as a diagnosis."),
+          h("p", { class: "note" }, "EEG never leaves this computer. Codes, not names. Research estimates, not diagnoses."),
           h("p", { class: "note" }, "Research with people needs approval from your school's review board (and for ISEF, the SRC/IRB forms) before you collect any data."))));
   }
 
@@ -1102,7 +1102,7 @@ class App {
       h("div", { class: "table-wrap" }, h("table", { class: "data" },
         h("thead", {}, h("tr", {}, h("th", {}, "State"), h("th", { class: "n" }, "AUC on unseen rounds"), h("th", { class: "n" }, "p"), h("th", { class: "n" }, "Your rating (0-10)"), h("th", {}, "Live"))), tb)),
       h("p", { class: "note" }, `Face check: eye and jaw activity alone separate this person's states at ${(m.faceOnly.bacc * 100).toFixed(0)} % (p = ${m.faceOnly.p.toFixed(3)}). The live decoder removes what the face explains before it learns, so a state is shown only if the brain signal itself separates it.`),
-      h("p", { class: "note" }, "A state is shown live only when its AUC on unseen rounds beats 199 shuffles of the state labels (p ≤ 0.05). These are personal research measurements, not a diagnosis."));
+      h("p", { class: "note" }, "Shown only if it beats 199 label shuffles (p ≤ 0.05). Research measures, not diagnoses."));
   }
 
   saveCheckin(r: RunResult) {
@@ -1161,7 +1161,7 @@ class App {
       h("div", { class: "table-wrap" }, h("table", { class: "data" },
         h("thead", {}, h("tr", {}, h("th", {}, "Block"), h("th", {}, "World"), h("th", { class: "n" }, "SAM val."), h("th", { class: "n" }, "SAM aro."), h("th", { class: "n" }, "Decoded V"), h("th", { class: "n" }, "Decoded A"))),
         tbody)),
-      h("p", { class: "note" }, "SAM is 1–9. Decoded values are means over each block, −1 to +1. Open Mood decoders → Fit a decoder to one person to fit a decoder to these ratings."));
+      h("p", { class: "note" }, "Ratings 1–9; decoded values −1 to +1, averaged per block."));
   }
 
   // ---------------------------------------------------------------- per-window updates
@@ -1189,10 +1189,12 @@ class App {
         $("mindPos").style.width = `${Math.max(0, L) * 50}%`;
         $("mindNeg").style.width = `${Math.max(0, -L) * 50}%`;
         $("mindLabel").textContent = st.held ? "Face activity · holding" : st.command === "focus" ? "Focus" : st.command === "relax" ? "Relax" : "Steady";
-        const task = this.world.carrying || this.world.aiming, tn = this.world.targetName;
-        hud.classList.toggle("task", task);
-        $("mindHint").textContent = this.world.carrying ? `Now relax: breathe out slowly to light ${tn ?? "the beacon"}`
-          : this.world.aiming ? `Focus to kindle the lantern for ${tn ?? "this beacon"}` : `Sailing on${this.world.goalName ? ` to ${this.world.goalName}` : ""}`;
+        this.world.gameOn = !this.runner.running;   // no game prompts during a study protocol
+        const calm = this.world.calmProgress, rocks = this.world.aiming;
+        hud.classList.toggle("task", rocks || calm !== null);
+        $("mindHint").textContent = rocks ? "Rocks ahead · focus to steer clear"
+          : calm !== null ? `${this.world.realm.title} · relax to calm the sea · ${Math.round(calm * 100)} %`
+          : `Sailing${this.world.goalName ? ` to ${this.world.goalName}` : ""}`;
       }
     }
     if (this.checkinAcc && ev.bandPower && !ev.reject) this.checkinAcc.add(ev.bandPower, ev.masked);
@@ -1267,7 +1269,7 @@ class App {
     $("cmpStd").textContent = o?.cmp ? fmtSigned(d === "a" ? o.cmp.a : o.cmp.v) : "—";
     $("cmpNote").textContent = cmpOn
       ? `Both decoders read the same signal; the brain-only one first removes what eye and jaw activity explain, and holds its value when that activity is beyond its training range${o?.faceHold ? " (holding now)" : ""}. The strip shows eye and jaw activity above your baseline.`
-      : "Choose the brain-only decoder (Mood decoders) to see it next to the standard decoder. The strip shows eye and jaw activity above your baseline.";
+      : "Pick the brain-only decoder to compare. Strip = eye and jaw activity.";
   }
 
   renderWhy(ev: WindowEvent) {
@@ -1457,7 +1459,7 @@ class App {
     } catch { /* bundled model invalid: skip */ }
     try {
       const m = validateModel(builtinBrain);
-      this.models.unshift({ id: "builtin:brain", name: m.name, desc: "Recommended. Valence and arousal from brain activity only: every window's eye and jaw-muscle activity is measured and everything it explains is removed before decoding. Trained on 28 people (GAMEEMO, 14-channel Emotiv; labels are the games' intended emotions). Runs on any headset.", model: m, origin: "built-in" });
+      this.models.unshift({ id: "builtin:brain", name: m.name, desc: "Recommended. Removes everything blinks and jaw muscle explain, then decodes.", model: m, origin: "built-in" });
     } catch { /* bundled model invalid: skip */ }
     try {
       const m = validateModel(builtinGameemo);
@@ -1466,7 +1468,7 @@ class App {
     this.modelId = "markers";
     try {
       const m = validateModel(builtinInsight);
-      this.models.push({ id: "builtin:insight", name: m.name, desc: "Brain-only valence and arousal (as above) plus an experimental stress head trained on 17 people recorded with an Emotiv Insight (horror video vs relaxing music). Stress was higher for the horror recording in 13 of 17 new people; treat it as a research measurement.", model: m, origin: "built-in" });
+      this.models.push({ id: "builtin:insight", name: m.name, desc: "Brain-only, plus an experimental stress output (17 Insight users).", model: m, origin: "built-in" });
     } catch { /* bundled model invalid: leave it out */ }
     if (this.models.some(m => m.id === "builtin:brain")) { void this.selectModel("builtin:brain"); return; }
     this.renderModelList();
@@ -1527,7 +1529,7 @@ class App {
         h("dl", { class: "kv" },
           h("dt", {}, "Valence"), h("dd", {}, "alpha(right) − alpha(left), frontal"),
           h("dt", {}, "Arousal"), h("dd", {}, "beta − alpha, all regions")),
-        h("p", { class: "note" }, "More right-hemisphere alpha means relatively more left-frontal activity, which is linked to approach and positive affect (Davidson's frontal asymmetry). Beta rises and alpha falls with alertness. Train a model for better accuracy on your own data."));
+        h("p", { class: "note" }, "More right alpha = more left-frontal activity, linked to positive mood (Davidson). Beta rises with alertness."));
       return;
     }
     const kv = h("dl", { class: "kv" },
@@ -1882,15 +1884,49 @@ class App {
 
   viewMethod(): HTMLElement {
     return h("section", { class: "view", tabindex: "0", "data-view": "method", hidden: true },
-      h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "How Emotif works"),
-        h("p", {}, "From headset to 3-D world in seven steps. Every step runs live in this browser; the grey boxes show the current numbers."))),
+      h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "About Emotif"),
+        h("p", {}, "Can a $300 headset read emotion from the brain, not the face?"))),
+      this.findings(),
+      h("h2", { class: "sec-h" }, "How it works"),
       h("div", { class: "pipeline", id: "pipeline" }),
+      h("h2", { class: "sec-h" }, "Figures"),
       h("div", { class: "cols evidence", id: "evidence" }),
       h("section", { class: "panel" }, h("h2", {}, "Image credits"),
         h("p", { class: "note" }, "Ground photographs (grass, rock, dirt, sand and their normal maps) and the Tropical Sunny Day sky: Babylon.js Assets, CC BY 4.0. Sky photographs Quarry 01, Blouberg Sunrise 2 and Moonless Golf: Poly Haven (Greg Zaal), CC0, as distributed with the three.js examples. Leaves and bark are drawn by Emotif. Details: app/assets/CREDITS.md.")));
   }
 
   renderMethod() { this.renderPipeline(); this.renderEvidence(); }
+
+  /** Results in plain words, each with its number, what it means, and where it comes from (docs/RESULTS.md). */
+  findings(): HTMLElement {
+    const F: [string, string, string, string][] = [
+      ["The face fools standard decoders", "0.69 = 0.69", "Blinks and jaw muscle alone matched the full EEG (Goncharova 2003).", "Muse, 4 people · 3"],
+      ["A real brain signal survives", "p < 0.01", "Face removed, still above chance on 28 new people. Face share 29–52 % → 6–9 %.", "GAMEEMO · 3b–3c"],
+      ["It found a known pattern itself", "frontal alpha", "Lower left-frontal alpha for pleasant states, unprompted (Davidson 1992).", "3c"],
+      ["Stress on the 5-sensor Insight", "13 of 17", "Higher in horror than calm music, p = 0.002, dz 0.91.", "Insight, 17 people · 3d"],
+      ["High published scores are leakage", "0.75 ≈ 0.76", "Random splits score the same with scrambled labels (Saeb 2017).", "3e"],
+      ["Rest screens don't hold up", "AUC ≈ 0.5", "Depression, anxiety, sleepiness at chance on new people (Varoquaux 2018).", "31–49 people · 3d"],
+      ["The world follows the brain", "67 % → 25 %", "A jaw clench flips the weather far less with brain-only.", "closed loop · 3f"],
+      ["Simulated Insight data", "0.94 vs 0.17", "The pipeline finds built-in states and invents none. Not evidence about people.", "synthetic"],
+    ];
+    const refs = [
+      "Alakus TB, Gonen M, Turkoglu I (2020). GAMEEMO: database for an emotion recognition system based on EEG signals and computer games. Biomed Signal Process Control 60.",
+      "Bird JJ, Manso LJ, Ribeiro EP, Ekárt A, Faria DR (2018). A study on mental state classification using EEG-based brain-machine interface. IEEE Intelligent Systems.",
+      "Davidson RJ (1992). Anterior cerebral asymmetry and the nature of emotion. Brain and Cognition 20.",
+      "Goncharova II, McFarland DJ, Vaughan TM, Wolpaw JR (2003). EMG contamination of EEG: spectral and topographical characteristics. Clin Neurophysiol 114.",
+      "Mullen TR et al. (2015). Real-time neuroimaging and cognitive monitoring using wearable dry EEG. IEEE Trans Biomed Eng 62.",
+      "Saeb S, Lonini L, Jayaraman A, Mohr DC, Kording KP (2017). The need to approximate the use-case in clinical machine learning. GigaScience 6.",
+      "Thibault RT, Lifshitz M, Raz A (2016). The self-regulating brain and neurofeedback. Brain 139.",
+      "Varoquaux G (2018). Cross-validation failure: small sample sizes lead to large error bars. NeuroImage 180.",
+      "Zhang H et al. (2021). EEGdenoiseNet: a benchmark dataset for deep learning solutions of EEG denoising. J Neural Eng 18.",
+    ];
+    return h("div", { class: "findings" },
+      h("h2", { class: "sec-h" }, "What we found"),
+      h("ol", { class: "find-list" }, ...F.map(([t, n, d, src]) => h("li", { class: "find" },
+        h("div", { class: "find-n" }, n), h("div", {}, h("b", {}, t), h("p", {}, d), h("small", {}, `Source: ${src}`))))),
+      h("p", { class: "note" }, "Balanced accuracy on people the model never saw; chance 0.5 unless stated."),
+      h("details", { class: "refs" }, h("summary", {}, "References"), h("ol", {}, ...refs.map(r => h("li", {}, r)))));
+  }
 
   private methodStatsAt = 0;
   renderMethodStats() {
@@ -1912,7 +1948,7 @@ class App {
       stage("3", "Repair blinks and muscle bursts", "Artifact Subspace Reconstruction finds bursts that don't look like the baseline and rebuilds them from the clean channels.", e.asrActive ? `${Math.round((ev?.repaired ?? 0) * 100)}% of last 10 s repaired` : e.calibrated ? "off" : "calibrating"),
       stage("4", "Flag noisy sensors", "A neural network trained on 13,500 recordings (EEGdenoiseNet) labels each channel clean, eye or muscle, and holds out bad ones.", e.detectorActive && ev ? `${ev.masked.filter(Boolean).length} of ${e.C} held out` : e.calibrated ? "off" : "calibrating"),
       stage("5", "Map onto scalp regions", "Differential entropy in 5 bands, z-scored to the baseline, pooled into 17 fixed scalp regions so any headset fits one model.", cov ? `${cov.observed.length} / 17 regions covered` : "—"),
-      stage("6", "Read the mood (brain only)", "Blink size and jaw-muscle power are measured in every window; the brain-only decoder removes everything they explain, then reads valence and arousal. A Kalman filter smooths them.",
+      stage("6", "Read the mood (brain only)", "Face activity is measured every window and removed before decoding.",
         e.last ? `${isBrainOnly(e.model) ? "face removed · " : ""}${entry?.name ?? "markers"} · V ${fmtSigned(e.last.v)} A ${fmtSigned(e.last.a)}` : "waiting"),
       stage("7", "Change the world", "The 3-D world mirrors, guides or (as a control) ignores the state; the robot arm can embody it.", `world: ${this.director.mode}`));
   }

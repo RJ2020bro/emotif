@@ -52,7 +52,7 @@ def shot(page, name):
 # therefore clicked with dispatch_event (same handlers, no pointer-actionability wait).
 def new_page(browser, errors, **kw):
     page = browser.new_page(**kw)
-    page.add_init_script("try { localStorage.setItem('emotif.sidePanel', 'true') } catch (e) {}")   # tests use the side panel
+    page.add_init_script("try { localStorage.setItem('emotif.sidePanel', 'true'); if (!localStorage.getItem('emotif.simMontage')) localStorage.setItem('emotif.simMontage', '\"lab8\"') } catch (e) {}")   # tests use the side panel and the 8-channel practice layout
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     page.route("**/fonts.googleapis.com/**", lambda r: r.abort())
@@ -414,22 +414,28 @@ def check_personal_states(page):
 
 
 def check_mind_control(page):
-    """Natural world: the voyage reaches a landmark; a focus command kindles the lantern, a relax command lights its
-    beacon (the decoder's command is stubbed so the test doesn't depend on simulated alpha)."""
+    """Sea world: rocks appear on the course and a focus command steers clear; in an unpleasant realm a relax
+    command calms the sea (the decoder's command is stubbed so the test doesn't depend on simulated alpha)."""
     page.evaluate("window.emotif.go('live')")
     page.select_option("#worldStyle", "natural")
-    page.evaluate("window.emotif.world.interactive = true; window.emotif.world.explore = true")
-    wait(page, "window.emotif.world.aiming", 90, "an unlit beacon within reach")
+    page.evaluate("window.emotif.world.interactive = true; window.emotif.world.explore = true; window.emotif.world.gameOn = true")
+    page.evaluate("window.emotif.mind.update = () => ({ level: 0, command: null, holdFor: 0, held: false })")
+    wait(page, "window.emotif.world.sailing && (window.emotif.world.aiming || window.emotif.world.spawnHazard(30))", 60, "rocks placed on the course")
+    wait(page, "window.emotif.world.aiming", 30, "rocks ahead")
+    wait(page, "document.getElementById('mindHint').textContent.includes('steer clear')", 10, "prompt to steer clear")
     page.evaluate("window.emotif.mind.update = () => ({ level: 1.2, command: 'focus', holdFor: 2, held: false })")
-    wait(page, "window.emotif.world.carrying", 20, "focus kindles the lantern")
+    wait(page, "window.emotif.world.dodges >= 1", 20, "focus steers clear of the rocks")
     assert page.inner_text("#mindLabel") == "Focus"
+    # an unpleasant realm to calm: hold the realm at stress (the decoded state is not what is under test here)
+    page.evaluate("""(() => { const w = window.emotif.world; w.updateRealm = () => {}; w.realmName = 'stress'; w.realmW = 1; })()""")
+    wait(page, "window.emotif.world.calmProgress !== null", 10, "calm meter in the stress realm")
     page.evaluate("window.emotif.mind.update = () => ({ level: -1.2, command: 'relax', holdFor: 2, held: false })")
-    wait(page, "!window.emotif.world.carrying && window.emotif.world.placedCount >= 1", 20, "relaxing lights the beacon")
-    time.sleep(2.5)
+    wait(page, "window.emotif.world.calmProgress >= 0.1", 20, "relaxing calms the sea")
+    time.sleep(1.5)
     shot(page, "world_mind_control")
-    page.evaluate("delete window.emotif.mind.update")
+    page.evaluate("(() => { const w = window.emotif.world; delete w.updateRealm; delete window.emotif.mind.update; })()")
     page.select_option("#worldStyle", "auto")
-    print("mind control OK: beacon targeted, lantern kindled on focus, beacon lit on relax")
+    print("mind control OK: rocks dodged on focus, sea calmed on relax")
 
 
 def check_inner_world(page):

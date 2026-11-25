@@ -67,14 +67,14 @@ export function vaSig(v: number, a: number): Sig {
 export type StorySegment = { label: string; seconds: number; state?: StateName; va?: VA; focus?: number };
 export const STORY: StorySegment[] = [
   { label: "Calm seas", seconds: 24, state: "calm" },
-  { label: "Focus: kindle the lantern", seconds: 10, va: { v: 0.3, a: 0.3 }, focus: 1 },
-  { label: "Relax: light the beacon", seconds: 12, va: { v: 0.4, a: -0.3 }, focus: -1 },
+  { label: "Focus: steer clear", seconds: 10, va: { v: 0.3, a: 0.3 }, focus: 1 },
+  { label: "Relax: calm the sea", seconds: 12, va: { v: 0.4, a: -0.3 }, focus: -1 },
   { label: "Stress: a storm rises", seconds: 24, state: "stress" },
   { label: "Anxiety: fog closes in", seconds: 24, state: "anxiety" },
   { label: "Anger: the forge erupts", seconds: 24, state: "anger" },
   { label: "Slow breaths: calm returns", seconds: 16, state: "calm" },
-  { label: "Focus: kindle the lantern", seconds: 10, va: { v: 0.5, a: 0.3 }, focus: 1 },
-  { label: "Relax: light the beacon", seconds: 12, va: { v: 0.5, a: -0.2 }, focus: -1 },
+  { label: "Focus: steer clear", seconds: 10, va: { v: 0.5, a: 0.3 }, focus: 1 },
+  { label: "Relax: calm the sea", seconds: 12, va: { v: 0.5, a: -0.2 }, focus: -1 },
   { label: "Low mood: the grey sea", seconds: 24, state: "low_mood" },
   { label: "Drowsy: the isle of sleep", seconds: 24, state: "drowsy" },
   { label: "Waking, content", seconds: 6, va: { v: 0.5, a: 0 } },
@@ -129,7 +129,7 @@ export class Simulator implements Source {
   envState: VA = { v: 0, a: 0 };  // set by the environment director (participant mode)
   responsiveness = 0.08;          // per second
   calibSec = 30;
-  montage = "lab8";
+  montage = "emotiv_insight";   // the study headset
   /** Personal state to produce; overrides valence/arousal targeting (and the story) when set. */
   state: StateName | null = null;
   /** Brain control in [-1, 1]: +1 focused (posterior alpha well below baseline), -1 relaxed (well above). Smoothed over ~1 s. */
