@@ -366,6 +366,42 @@ export const REALMS: Record<RealmName, Realm> = {
   low_mood: { title: "The Island of the Ka", line: "Low mood. Grey sky, still water.", culture: "egyptian", sky: "#4a5260", hor: "#8d949c", tint: [0.9, 0.94, 1.04], sat: 0.45, bright: 0.8, fog: 1.8, cloud: 0.75, storm: 0.1, foam: 0.1, water: "#3b4a55", night: 0, weather: "snow" },
   drowsy: { title: "Ryūgū-jō", line: "Drowsy. Night, and the sea goes quiet.", culture: "japanese", sky: "#0d1430", hor: "#2b3560", tint: [0.85, 0.9, 1.1], sat: 0.8, bright: 0.62, fog: 1.2, cloud: 0.08, storm: 0, foam: 0, water: "#0f2440", night: 1, weather: "stars" },
 };
+/** Each state has several myths to sail into; one is drawn at random every time the state takes hold, so the
+ * same feeling can open a different sea. The state sets the weather and light; the myth sets the islands. */
+export type Myth = { title: string; line: string; culture: Culture; sky?: string; hor?: string; water?: string };
+export const MYTHS: Record<RealmName, Myth[]> = {
+  calm: [
+    { title: "Hawaiki", line: "Calm. Clear water and a steady wind.", culture: "polynesian" },
+    { title: "Penglai", line: "Calm. The isle of the immortals rises from still water.", culture: "chinese", hor: "#fbe7c6" },
+    { title: "Tír na nÓg", line: "Calm. The land of youth, green and bright.", culture: "celtic", water: "#2aa7a0" },
+  ],
+  stress: [
+    { title: "The Strait of Scylla", line: "Stress. Rough water between the rocks.", culture: "greek" },
+    { title: "Rán's Net", line: "Stress. The sea goddess casts her net over the waves.", culture: "norse" },
+    { title: "Susanoo's Storm", line: "Stress. The storm god tears at the sky.", culture: "japanese" },
+  ],
+  anxiety: [
+    { title: "The Mists of Avalon", line: "Anxiety. Fog hides the way.", culture: "celtic" },
+    { title: "The Sea of the Umibōzu", line: "Anxiety. Something vast moves under the fog.", culture: "japanese", water: "#3f5660" },
+    { title: "The Edge of Erebus", line: "Anxiety. Darkness gathers at the world's edge.", culture: "greek", sky: "#6d7880" },
+  ],
+  anger: [
+    { title: "Muspelheim", line: "Anger. Fire on the water.", culture: "norse" },
+    { title: "Pele's Fire", line: "Anger. Lava meets the sea.", culture: "polynesian", hor: "#ff8a3d" },
+    { title: "The Burning of Lanka", line: "Anger. Hanuman's fire sweeps the city.", culture: "hindu", sky: "#6a2410" },
+  ],
+  low_mood: [
+    { title: "The Island of the Ka", line: "Low mood. Grey sky, still water.", culture: "egyptian" },
+    { title: "The Waters of Lethe", line: "Low mood. The river of forgetting runs grey.", culture: "greek" },
+    { title: "The Road to Mictlān", line: "Low mood. The long road through the land of the dead.", culture: "aztec", sky: "#4d4a58" },
+  ],
+  drowsy: [
+    { title: "Ryūgū-jō", line: "Drowsy. Night, and the sea goes quiet.", culture: "japanese" },
+    { title: "The Isle of Hypnos", line: "Drowsy. Poppies by the cave of the god of sleep.", culture: "greek" },
+    { title: "The Dream of Huaxu", line: "Drowsy. The Yellow Emperor's dream country.", culture: "chinese", sky: "#141a3a" },
+  ],
+};
+
 /** Without a calibrated personal-state model, the realm comes from the affect map. */
 export function realmFromVA(v: number, a: number): RealmName | null {
   if (a <= -0.55) return "drowsy";
@@ -772,7 +808,8 @@ export class World {
   }
 
   /** The tradition new waters take on: the current realm's (Greek on the open sea). */
-  private cultureNow(): Culture { return this.realmName ? REALMS[this.realmName].culture : "greek"; }
+  private cultureNow(): Culture { return this.myth?.culture ?? "greek"; }
+  private myth: Myth | null = null;   // the myth drawn for the current realm
 
   /** Discover landmarks the explorer comes close to; choose the next one to head for. */
   private updateVoyage(dt: number) {
@@ -1104,7 +1141,7 @@ export class World {
     }
     this.updateRealm(dt);
     const R = this.realmName ? REALMS[this.realmName] : null, rw = R ? this.realmW * (0.4 + 0.6 * m) : 0;
-    if (R) { top.lerp(new THREE.Color(R.sky), 0.75 * rw); hor.lerp(new THREE.Color(R.hor), 0.75 * rw); }
+    if (R) { top.lerp(new THREE.Color(this.myth?.sky ?? R.sky), 0.75 * rw); hor.lerp(new THREE.Color(this.myth?.hor ?? R.hor), 0.75 * rw); }
     U.uTop.value.copy(top);
     U.uHorizon.value.copy(hor);
     U.uFogColor.value.copy(hor);
@@ -1154,7 +1191,7 @@ export class World {
       const f0 = U.uFoam.value;
       U.uFoam.value = mixv(f0, R.foam);
       U.uWave.value += 0.5 * (U.uFoam.value - f0);
-      U.uWater.value.lerp(new THREE.Color(R.water), 0.8 * rw);
+      U.uWater.value.lerp(new THREE.Color(this.myth?.water ?? R.water), 0.8 * rw);
       U.uNight.value = Math.max(U.uNight.value, R.night * rw);
       U.uSunColor.value.multiplyScalar(mixv(1, R.bright));
     }
@@ -1301,6 +1338,7 @@ export class World {
   private calmMeter = 0;
   private regFrom: RealmName | null = null;
   private regStart = 0;
+  private regTitle = "";
   private rockGeo: THREE.BufferGeometry | null = null;
   private rockMat: THREE.Material | null = null;
   /** Rocks dodged and hit, and each recovery from an unpleasant realm (seconds from entering it to calm). */
@@ -1389,7 +1427,7 @@ export class World {
     // regulation: in an unpleasant realm, calm evidence fills the meter and visibly calms the sea
     const neg = this.realmName === "stress" || this.realmName === "anxiety" || this.realmName === "anger" || this.realmName === "low_mood";
     if (this.gameOn && neg) {
-      if (this.regFrom !== this.realmName) { this.regFrom = this.realmName; this.regStart = this.time; this.calmMeter = 0; }
+      if (this.regFrom !== this.realmName) { this.regFrom = this.realmName; this.regTitle = this.realm.title; this.regStart = this.time; this.calmMeter = 0; }
       const calmness = clamp(0.5 + 0.6 * this.cur.v - 0.5 * Math.max(0, this.cur.a), 0, 1);
       this.calmMeter = clamp(this.calmMeter + dt * 0.07 * (calmness - 0.35), 0, 1);
       if (cmd === "relax" && edge && this.relaxCool === 0) {   // relaxing (alpha up) helps at once
@@ -1398,7 +1436,7 @@ export class World {
       }
     } else if (this.regFrom && this.realmName !== this.regFrom) {
       if (this.gameOn && (this.realmName === "calm" || this.realmName === null)) {   // made it through
-        const R = REALMS[this.regFrom], secs = Math.round(this.time - this.regStart);
+        const R = { title: this.regTitle }, secs = Math.round(this.time - this.regStart);
         this.recoveries.push({ realm: this.regFrom, seconds: secs, t: this.time });
         const near = this.terrain.landmarksNear(P.x, P.z, 160).filter(L => !this.lit.has(L.key))
           .sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
@@ -1437,6 +1475,7 @@ export class World {
 
   // ---------------------------------------------------------------- realms: the six states retell the voyage
   private updateRealm(dt: number) {
+    if (this.realmHeld) return;
     const want = (this.statesLive ? (this.brainState && REALMS[this.brainState as RealmName] ? this.brainState : this.realmPending)
       : realmFromVA(this.cur.v, this.cur.a)) as RealmName | null;
     if (want !== this.realmPending) { this.realmPending = want; this.realmPendingFor = 0; }
@@ -1445,8 +1484,10 @@ export class World {
       if (this.realmW > 0.02 && this.realmName) this.realmW = Math.max(0, this.realmW - dt * 0.35);
       else {
         this.realmName = want;
-        if (want) {
-          const R = REALMS[want];
+        const list = want ? MYTHS[want] : [];
+        this.myth = want ? list[Math.floor(Math.random() * list.length)] : null;   // a new sea each time
+        if (want && this.myth) {
+          const R = this.myth;
           this.chapters.push({ realm: want, title: R.title, t: this.time });
           this.showToast(R.title, this.chapters.length, `Chapter ${this.chapters.length}`, R.line);
           this.onChapter?.(want, R.title, R.line);
@@ -1454,9 +1495,18 @@ export class World {
       }
     } else if (this.realmName) this.realmW = Math.min(1, this.realmW + dt * 0.25);   // slow fade: no flashes
   }
+  /** Hold a realm and one of its myths regardless of the decoder (demos, tests, filming); null releases it. */
+  holdRealm(name: RealmName | null, myth = 0) {
+    this.realmHeld = !!name;
+    if (!name) return;
+    const list = MYTHS[name];
+    this.realmName = name; this.myth = list[((myth % list.length) + list.length) % list.length]; this.realmW = 1;
+  }
+  private realmHeld = false;
+
   /** The realm (one of the six states) the voyage is in now, and how fully. */
   get realm(): { name: RealmName | null; title: string; line: string; weight: number } {
-    const R = this.realmName ? REALMS[this.realmName] : null;
+    const R = this.realmName ? (this.myth ?? REALMS[this.realmName]) : null;
     return { name: this.realmName, title: R?.title ?? "The open sea", line: R?.line ?? "", weight: this.realmW };
   }
   get chapterLog(): { realm: RealmName; title: string; t: number }[] { return this.chapters.slice(); }

@@ -7,9 +7,9 @@ import type { Feature, WorldSpec } from "./worldspec";
 export const CHUNK = 24;
 export const REGION = 96;   // landmark grid (a multiple of CHUNK)
 /** The six seafaring traditions the islands are drawn from, one for each decoded state (see REALMS in world.ts). */
-export const CULTURES = ["greek", "polynesian", "celtic", "norse", "egyptian", "japanese"] as const;
+export const CULTURES = ["greek", "polynesian", "celtic", "norse", "egyptian", "japanese", "chinese", "hindu", "aztec"] as const;
 export type Culture = typeof CULTURES[number];
-export type LandmarkKind = "temple" | "pharos" | "oak" | "colossus" | "tholos" | "sphinx" | "ahu" | "marae" | "circle" | "stoneship" | "runestone" | "obelisk" | "pylon" | "torii" | "pagoda";
+export type LandmarkKind = "temple" | "pharos" | "oak" | "colossus" | "tholos" | "sphinx" | "ahu" | "marae" | "circle" | "stoneship" | "runestone" | "obelisk" | "pylon" | "torii" | "pagoda" | "shikhara" | "pyramid";
 const KINDS: Record<Culture, LandmarkKind[]> = {
   greek: ["temple", "temple", "tholos", "colossus", "pharos", "sphinx", "oak"],
   polynesian: ["ahu", "marae", "marae"],
@@ -17,6 +17,9 @@ const KINDS: Record<Culture, LandmarkKind[]> = {
   norse: ["stoneship", "runestone"],
   egyptian: ["obelisk", "pylon", "pylon"],
   japanese: ["torii", "pagoda"],
+  chinese: ["pagoda"],
+  hindu: ["shikhara"],
+  aztec: ["pyramid"],
 };
 // Names are real places and real kinds of monument from each tradition (islands of the Odyssey and the Aegean;
 // Polynesian islands and Rapa Nui, the only home of the moai; the Otherworld isles of Celtic and Arthurian legend;
@@ -28,6 +31,9 @@ const ISLES: Record<Culture, string[]> = {
   norse: ["Hlésey", "Jötunheim", "Muspelheim", "Gotland", "Orkney", "Hrafnsey"],
   egyptian: ["Philae", "Elephantine", "the Ka", "Biga", "Abu"],
   japanese: ["Onogoro", "Itsukushima", "Hōrai", "Ryūgū", "Okinoshima", "Chikubu"],
+  chinese: ["Penglai", "Fangzhang", "Yingzhou", "Huaguo Shan", "Huaxu"],
+  hindu: ["Lanka", "Dvārakā", "Maṇidvīpa", "Rāmeśvaram"],
+  aztec: ["Aztlán", "Mictlān", "Tamoanchan", "Tlālōcān"],
 };
 export type Landmark = { key: string; x: number; z: number; y: number; kind: LandmarkKind; culture: Culture; rot: number; size: number; ruined: boolean;
   name: string; r0: number; r1: number; beacon: [number, number, number] };   // beacon: where its fire burns
@@ -50,6 +56,8 @@ const landmarkTitle = (kind: LandmarkKind, ruined: boolean, pick: (list: string[
     case "pylon": return `Temple of ${pick(["Isis", "Hathor", "Khnum"])}`;
     case "torii": return "Sea torii";
     case "pagoda": return "Pagoda";
+    case "shikhara": return `Temple of ${pick(["Shiva", "Vishnu", "Durga"])}`;
+    case "pyramid": return `Pyramid of ${pick(["Quetzalcōātl", "Tlāloc", "Tezcatlipoca"])}`;
   }
 };
 export const KIND = { ground: 0, sway: 1, glow: 2, bloom: 3, plain: 4, grass: 5, leaf: 6, bark: 7, stone: 8 } as const;
@@ -190,7 +198,7 @@ export class Terrain {
     const isle = kind === "ahu" ? "Rapa Nui" : isles[Math.floor(ihash(rx, rz, s + 5) * isles.length)];
     const up: Record<LandmarkKind, number> = { temple: 1.1 * size, pharos: 0.6 + 15 * size, oak: 2.2, colossus: 20.8 * size, tholos: 0.5 + 1.05 * size,
       sphinx: 1.2 + 11.9 * size, ahu: 1, marae: 1, circle: 2.2, stoneship: 1, runestone: 1, obelisk: 0.6 + 12.7 * size, pylon: 1,
-      torii: 2 * size, pagoda: 0.6 + 15.6 * size };
+      torii: 2 * size, pagoda: 0.6 + 15.6 * size, shikhara: 1 + 13.6 * size, pyramid: 0.95 + 11.4 * size };
     const off = kind === "temple" ? 10.6 * size : kind === "pylon" ? 7.5 * size : kind === "torii" ? 4.2 * size : 0;
     const side = kind === "torii" ? 5.2 * size : kind === "ahu" ? 5 * size : 0;
     const c0 = Math.cos(L.rot), s0 = Math.sin(L.rot);
@@ -1023,6 +1031,36 @@ function buildLandmark(mb: MB, T: Terrain, L: Landmark) {
         yy += h + 0.7 * S;
       }
       mb.cone(x, yy, z, 0.18 * S, 0.08 * S, 3.2 * S, 8, 0, GOLD, K.glow, y, false);
+      break;
+    }
+    case "shikhara": {   // a Nagara temple: a curving tower of stacked courses over the sanctum, an amalaka and kalasha on top
+      const ST: RGB = [0.78, 0.62, 0.46];
+      mb.obox(x, y - 1, z, 5 * S, 2, 4 * S, rot, MARBLE_D, K.stone, y);
+      const [mx, mz] = at(4 * S, 0);
+      mb.obox(mx, y + 1, mz, 2.2 * S, 3.2 * S, 2.4 * S, rot, ST, K.stone, y);                     // mandapa (hall)
+      mb.cone(mx, y + 1 + 3.2 * S, mz, 2.6 * S, 0.6 * S, 1.6 * S, 4, rot + Math.PI / 4, ST, K.stone, y, false);
+      let yy = y + 1;
+      for (let k = 0; k < 8; k++) {
+        const w = (3 - 2.1 * Math.pow(k / 8, 1.6)) * S;
+        mb.obox(x, yy, z, w, 1.6 * S, w, rot, ST, K.stone, y);
+        yy += 1.6 * S;
+      }
+      mb.blob(x, yy + 0.2 * S, z, 1.1 * S, 0.35 * S, 1.1 * S, ST, K.stone, y, true, sd, false);      // amalaka
+      mb.blob(x, yy + 0.6 * S, z, 0.35 * S, 0.5 * S, 0.35 * S, GOLD, K.glow, y, true, sd + 1);      // kalasha
+      break;
+    }
+    case "pyramid": {   // Mesoamerican stepped pyramid with a stair and a temple on top
+      const LIME: RGB = [0.78, 0.74, 0.64], RED: RGB = [0.62, 0.22, 0.16];
+      for (let k = 0; k < 5; k++) {
+        const w = (9 - k * 1.25) * S, y0 = y - 1 + k * 1.8 * S + (k ? 1 : 0);
+        mb.obox(x, y0, z, w, 1.8 * S + (k ? 0 : 1), w, rot, LIME, K.stone, y);
+      }
+      for (let k = 0; k < 5; k++) {                                                            // the stair, one flight per tier
+        const w = (9 - k * 1.25) * S, [sx, sz] = at(w + 0.5 * S, 0);
+        mb.obox(sx, y - 1, sz, 0.6 * S, (k + 1) * 1.8 * S + 1, 1.5 * S, rot, [0.7, 0.66, 0.57], K.stone, y);
+      }
+      mb.obox(x, y + 9 * S, z, 2.4 * S, 2.4 * S, 2.2 * S, rot, RED, K.plain, y);
+      flame(x, y + 11.4 * S, z, 1);
       break;
     }
     case "sphinx": {   // a votive column crowned by a sphinx, as the Naxians dedicated at Delphi
