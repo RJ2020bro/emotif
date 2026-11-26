@@ -1886,7 +1886,7 @@ class App {
   viewMethod(): HTMLElement {
     return h("section", { class: "view", tabindex: "0", "data-view": "method", hidden: true },
       h("div", { class: "view-head" }, h("div", {}, h("h1", {}, "About Emotif"),
-        h("p", {}, "Can a $300 headset read emotion from the brain, not the face?"))),
+        h("p", {}, "Can a 5-sensor consumer headset read emotion from the brain, not the face?"))),
       this.findings(),
       h("h2", { class: "sec-h" }, "How it works"),
       h("div", { class: "pipeline", id: "pipeline" }),
