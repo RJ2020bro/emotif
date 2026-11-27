@@ -377,6 +377,83 @@ function runEngine(channels, model, seconds, va, artifactsEvery = 0) {
   assert.match(refused.got.status.at(-1)[0], /licence/);
   assert.ok(!refused.calls.includes("controlDevice"), "an already connected headset is not reconnected");
   console.log("Emotiv Cortex source OK: access approval wait, connect, session, eeg columns, licence refusal, close on stop");
+
+  // no raw-EEG licence: debit refused -> authorize without, session stays open, band power instead of eeg
+  const { powColumns, powFrame } = require(join(D, "cortex.cjs"));
+  const sensors = ["AF3", "T7", "Pz", "T8", "AF4"], bands = ["theta", "alpha", "betaL", "betaH", "gamma"];
+  const pcols = sensors.flatMap(s => bands.map(b => `${s}/${b}`));
+  const pc = powColumns(pcols, sensors);
+  assert.deepEqual(pc.names, sensors);
+  assert.deepEqual(pc.index[1], [5, 6, 7, 8, 9]);
+  assert.deepEqual(powColumns(["AF3/theta", "AF3/alpha"]).names, [], "a sensor missing bands is left out");
+  const fr = powFrame(pcols.map((_, i) => i + 1), pc.index);
+  assert.equal(fr.length, 25); assert.ok(Number.isNaN(fr[0]));
+  assert.deepEqual(fr.slice(1, 5), [1, 2, 3 + 4, 5], "beta = betaL + betaH");
+  assert.equal(powFrame(["x"], pc.index), null);
+  {
+    const calls = [];
+    let ws;
+    const reply = (id, result) => setTimeout(() => ws.onmessage?.({ data: JSON.stringify({ id, jsonrpc: "2.0", result }) }), 1);
+    const fail = (id, code, message) => setTimeout(() => ws.onmessage?.({ data: JSON.stringify({ id, jsonrpc: "2.0", error: { code, message } }) }), 1);
+    const make = () => {
+      ws = { readyState: 0, onopen: null, onmessage: null, onerror: null, onclose: null, close() { this.readyState = 3; },
+        send(raw) {
+          const m = JSON.parse(raw); calls.push([m.method, m.params?.debit ?? m.params?.status ?? m.params?.streams?.join()]);
+          if (m.method === "requestAccess") reply(m.id, { accessGranted: true });
+          else if (m.method === "authorize") m.params.debit ? fail(m.id, -32024, "No license to debit") : reply(m.id, { cortexToken: "tok" });
+          else if (m.method === "queryHeadsets") reply(m.id, [{ id: "INSIGHT-A1B2C3D4", status: "connected", sensors }]);
+          else if (m.method === "createSession") reply(m.id, { id: "ses1" });
+          else if (m.method === "updateSession") reply(m.id, {});
+          else if (m.method === "subscribe") {
+            assert.deepEqual(m.params.streams, ["pow"], "no eeg request on a session that was never activated");
+            reply(m.id, { success: [{ streamName: "pow", cols: pcols, sid: "ses1" }], failure: [] });
+            for (let k = 0; k < 16; k++) setTimeout(() => ws.onmessage?.({ data: JSON.stringify({ pow: pcols.map((_, i) => 1 + (i % 5) + (k % 2)), sid: "ses1", time: 1000 + k / 8 }) }), 5 + k);
+          }
+        } };
+      setTimeout(() => { ws.readyState = 1; ws.onopen({}); }, 1);
+      return ws;
+    };
+    const src = new CortexSource({ clientId: "cid", clientSecret: "sec" }, make);
+    src.pollMs = 5;
+    const got = { meta: null, band: null, frames: [], status: [] };
+    await src.start({ onMeta: () => { got.meta = true; }, onRows: () => {}, onBandMeta: (ch, label) => { got.band = { ch, label }; },
+      onBands: f => got.frames.push(...f), onStatus: (t, k) => got.status.push([t, k]), onEnd: () => {} });
+    await new Promise(r => setTimeout(r, 250));
+    src.stop();
+    assert.equal(got.meta, null, "no raw meta in band mode");
+    assert.deepEqual(got.band, { ch: sensors, label: "Emotiv · INSIGHT-A1B2C3D4 · band power" });
+    assert.deepEqual(calls.filter(c => c[0] === "authorize").map(c => c[1] ?? 0), [1, 0], "debit tried, then authorize without");
+    assert.ok(!calls.some(c => c[0] === "updateSession" && c[1] === "active"), "an undebited session is not activated");
+    // 16 samples at 8 Hz over 2 s: 0.25 s buckets of 2 samples each, the last one still open
+    assert.equal(got.frames.length, 7);
+    assert.ok(Number.isNaN(got.frames[0][0][0]));
+    assert.deepEqual(got.frames[0][0].slice(1), [1.5, 2.5, 3.5 + 4.5, 5.5], "each frame averages its 0.25 s of samples");
+    assert.match(got.status.find(s => s[1] === "warn" && /band power/.test(s[0]))[0], /No raw-EEG licence/);
+  }
+  console.log("Emotiv free tier OK: debit refused -> undebited authorize, open session, pow columns, beta = betaL + betaH, 0.25 s frames");
+
+  // engine on band power: calibrates on frames, decodes with the markers, ignores raw-trained decoders
+  {
+    const e = new Engine();
+    e.settings.calibSec = 10;
+    e.setBandStream(sensors);
+    assert.equal(e.bandMode, true); assert.equal(e.fs, 4);
+    const rnd = mulberry32(3);
+    const frame = (alphaR, beta) => sensors.map(s => [NaN, 4 + rnd(), (s === "AF4" ? alphaR : 6) + rnd(), beta + rnd(), 1 + rnd() * 0.2]);
+    for (let i = 0; i < 40; i++) e.pushBands(frame(6, 3));
+    assert.ok(e.calibrated, "40 frames = 10 s baseline");
+    let n = 0; e.listeners.add(ev => { if (ev.out) n++; });
+    for (let i = 0; i < 40; i++) e.pushBands(frame(14, 9));
+    assert.equal(n, 40);
+    assert.equal(e.last.source, "markers");
+    assert.ok(e.last.v > 0, `more right-frontal alpha reads as positive valence (v=${e.last.v.toFixed(2)})`);
+    assert.ok(e.last.a > 0, `more beta reads as higher arousal (a=${e.last.a.toFixed(2)})`);
+    e.push([[1, 2, 3, 4, 5]]);
+    assert.equal(e.total, 80, "raw rows are ignored in band mode");
+    e.setStream(128, sensors);
+    assert.equal(e.bandMode, false, "a raw stream leaves band mode");
+  }
+  console.log("engine band mode OK: baseline from frames, marker valence/arousal, raw rows ignored, raw stream resets it");
 }
 
 // ---------------------------------------------------------------- personal state calibration: known answers

@@ -8,6 +8,10 @@ import SYNTH_JSON from "../../emotif/data/synthetic_states.json";
 export type SourceSink = {
   onMeta: (fs: number, channels: string[], label: string) => void;
   onRows: (rows: number[][]) => void;
+  /** Band-power sources (no raw EEG): channel names, then frames of per-channel [delta, theta, alpha, beta, gamma]
+   * powers, one frame per 0.25 s. Optional: a sink without these can only take raw EEG. */
+  onBandMeta?: (channels: string[], label: string) => void;
+  onBands?: (frames: number[][][]) => void;
   onStatus: (text: string, kind?: "ok" | "warn" | "error") => void;
   onEnd: () => void;
 };

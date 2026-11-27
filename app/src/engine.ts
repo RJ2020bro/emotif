@@ -105,6 +105,11 @@ export class Engine {
   calibError = "";
   asrActive = false;
   detectorActive = false;
+  /** Band-power input (Emotiv "pow" stream, no raw-EEG licence): one frame per HOP_SEC of per-channel band powers.
+   * No raw signal, so no filtering, ASR, artifact detector, face indices or blink/clench commands; decoding uses
+   * the neuro-markers only. */
+  bandMode = false;
+  private bandCal: Float64Array[][] = [];
 
   private live = false;
   private raw: Ring | null = null; private filt: Ring | null = null; private clean: Ring | null = null;
@@ -141,6 +146,7 @@ export class Engine {
   setStream(fs: number, channels: string[]) {
     if (!(fs >= 100)) throw new Error(`Sampling rate ${fs} Hz is too low; Emotif needs at least 100 Hz.`);
     if (!channels.length) throw new Error("The stream has no channels.");
+    this.bandMode = false;
     this.fs = fs; this.channels = channels.slice(); this.C = channels.length;
     this.N = windowLen(fs); this.hopN = Math.max(1, Math.round(HOP_SEC * fs));
     const cap = Math.max(this.N, Math.round(fs * 8));
@@ -151,6 +157,65 @@ export class Engine {
     this.maps.clear();
     this.history = []; this.featureLog = [];
     this.resetCalibration();
+  }
+
+  /** Start a band-power stream: frames of per-channel [delta, theta, alpha, beta, gamma] powers, one per HOP_SEC.
+   * delta may be NaN (Emotiv's pow stream has none); it is held at a constant so it adds nothing. */
+  setBandStream(channels: string[]) {
+    if (!channels.length) throw new Error("The stream has no channels.");
+    this.bandMode = true;
+    this.fs = 1 / HOP_SEC; this.channels = channels.slice(); this.C = channels.length;
+    this.N = 1; this.hopN = 1;
+    this.raw = null; this.filt = null; this.slow = null; this.filter = null; this.eye = null;
+    this.total = 0;
+    this.maps.clear();
+    this.history = []; this.featureLog = [];
+    this.resetCalibration();
+  }
+
+  pushBands(frame: ArrayLike<number>[]) {
+    if (!this.bandMode || frame.length !== this.C) return;
+    this.total++;
+    const bp = Array.from(frame, r => Float64Array.from({ length: 5 }, (_, b) => b === 0 ? 1 : Number(r[b])));
+    const good = bp.map(r => { for (let b = 1; b < 5; b++) if (!(r[b] > 0) || !Number.isFinite(r[b])) return false; return true; });
+    const stats = good.map(g => ({ ptp: 0, std: g ? 1 : 0 }));
+    const usable = good.some(Boolean);
+    if (!this.live) {
+      if (usable) this.bandCal.push(bp.map((r, c) => (good[c] ? r : new Float64Array(0))));
+      this.calLen = this.bandCal.length;
+      if (this.calLen >= this.calCap) this.finishBandCalibration();
+      else {
+        this.recent.push(usable ? 1 : 0);
+        if (this.recent.length > 40) this.recent.shift();
+        const ev: WindowEvent = { t: this.t, reject: !usable, stats, good, masked: good.map(g => !g), verdicts: null,
+          bandPower: usable ? bp : null, zde: null, features: null, face: null, faceRegion: null,
+          quality: this.recent.reduce((a, b) => a + b, 0) / this.recent.length, repaired: 0,
+          calibProgress: Math.min(1, this.calLen / Math.max(1, this.calCap)), calibrated: false, out: null };
+        this.lastEvent = ev;
+        for (const f of this.listeners) f(ev);
+      }
+      return;
+    }
+    this.decodeWindow(stats, good, good.map(g => !g), null, usable ? bp : null, null, usable);
+  }
+
+  private finishBandCalibration() {
+    const rows = this.bandCal;
+    if (rows.length < 8) { this.calibError = "The baseline was too noisy to calibrate. Check the headset fit and try again."; this.resetCalibration(); return; }
+    this.calibError = "";
+    const norm = this.norm!;
+    for (const r of rows) {
+      let eng = 0, ne = 0;
+      r.forEach((p, c) => {
+        if (!p.length) return;
+        for (let b = 0; b < 5; b++) norm.push(c * 5 + b, deFromPower(p[b]));
+        eng += Math.log((p[3] + 1e-9) / (p[2] + p[1] + 1e-9)); ne++;
+      });
+      if (ne) this.focusNorm.push(0, eng / ne);
+    }
+    this.bandCal = [];
+    this.kv.reset(); this.ka.reset(); this.kcv.reset(); this.kca.reset(); this.kx.clear();
+    this.live = true;
   }
 
   /** Rename channels without restarting the stream (montage editor). */
@@ -172,8 +237,10 @@ export class Engine {
     this.live = false;
     this.asr = null; this.asrState = null; this.asrActive = false;
     this.detBase = null; this.detectorActive = false;
-    this.clean = this.C ? new Ring(this.C, Math.max(this.N, Math.round(this.fs * 8))) : null;
     this.calCap = Math.round(Math.min(this.settings.calibSec, MAX_CAL_SEC) * this.fs);
+    this.bandCal = [];
+    if (this.bandMode) { this.clean = null; this.cal = []; this.calLen = 0; this.sinceHop = 0; return; }
+    this.clean = this.C ? new Ring(this.C, Math.max(this.N, Math.round(this.fs * 8))) : null;
     this.cal = Array.from({ length: this.C }, () => new Float64Array(Math.max(1, this.calCap)));
     this.calLen = 0;
     this.sinceHop = 0;
@@ -317,12 +384,12 @@ export class Engine {
     const stats = channelStats(win);
     const { good, reject } = channelQuality(stats, this.settings.rejectUv);
     const faceAbs = this.faceWindow();
-    let face: Float64Array[] | null = null, faceRegion: Float64Array | null = null;
+    let face: Float64Array[] | null = null;
     if (!this.live && faceAbs && !reject) this.faceCal.push(faceAbs);
     if (this.live && faceAbs && this.faceBase) face = faceAbs.map((r, c) => r.map((v, k) => v - this.faceBase![c][k]));
     let masked = good.map(g => !g);
     let verdicts: ChannelVerdict[] | null = null;
-    let bandPower: Float64Array[] | null = null, zde: (Float64Array | null)[] | null = null, features: Float64Array | null = null;
+    let bandPower: Float64Array[] | null = null;
     let usable = !reject;
     if (!reject) {
       bandPower = bandPowers(win, this.fs);
@@ -332,6 +399,17 @@ export class Engine {
         if (masked.every(Boolean)) usable = false;
       }
     }
+    this.decodeWindow(stats, good, masked, verdicts, bandPower, face, usable);
+  }
+
+  /** Shared tail of a window: z-score, features, decoders, smoothing, event. Raw-EEG windows and band-power frames
+   * both end here. */
+  private decodeWindow(stats: ChannelStat[], good: boolean[], masked: boolean[], verdicts: ChannelVerdict[] | null,
+    bandPower: Float64Array[] | null, face: Float64Array[] | null, usable: boolean) {
+    let zde: (Float64Array | null)[] | null = null, features: Float64Array | null = null, faceRegion: Float64Array | null = null;
+    // band mode: features differ from what the bundled decoders were trained on, so only the neuro-markers run
+    const model = this.bandMode ? null : this.model, compareModel = this.bandMode ? null : this.compareModel;
+    const personal = this.bandMode ? null : this.personalStates;
     this.recent.push(usable ? 1 : 0);
     if (this.recent.length > 40) this.recent.shift();
     const quality = this.recent.reduce((a, b) => a + b, 0) / this.recent.length;
@@ -364,11 +442,11 @@ export class Engine {
         const mk = markers(features);
         let v = Math.tanh(mk.v / 2), a = Math.tanh(mk.a / 2), conf: number | null = null, source: AffectOut["source"] = "markers";
         let faceHold = false;
-        if (this.model) {
+        if (model) {
           const confs: number[] = [];
-          faceHold = Object.values(this.model.heads).some(h => !!h && faceOutOfRange(h, faceRegion));
-          const ov = this.headValue(this.model, this.model.heads.valence, features, faceRegion);
-          const oa = this.headValue(this.model, this.model.heads.arousal, features, faceRegion);
+          faceHold = Object.values(model.heads).some(h => !!h && faceOutOfRange(h, faceRegion));
+          const ov = this.headValue(model, model.heads.valence, features, faceRegion);
+          const oa = this.headValue(model, model.heads.arousal, features, faceRegion);
           if (ov) { v = ov.value; confs.push(ov.conf); }
           if (oa) { a = oa.value; confs.push(oa.conf); }
           conf = confs.reduce((s, x) => s + x, 0) / confs.length;
@@ -378,8 +456,8 @@ export class Engine {
         if (faceHold) { this.faceHolds++; this.kv.predict(); this.ka.predict(); }
         else { this.kv.update(v, r); this.ka.update(a, r); }
         let cmp: AffectOut["cmp"] = null;
-        if (this.compareModel) {
-          const m = this.compareModel;
+        if (compareModel) {
+          const m = compareModel;
           const ov = this.headValue(m, m.heads.valence, features, faceRegion), oa = this.headValue(m, m.heads.arousal, features, faceRegion);
           const cc = [ov, oa].filter(Boolean).map(o => o!.conf);
           const rc = cc.length ? 0.03 / Math.max(0.2, cc.reduce((s, x) => s + x, 0) / cc.length) : 0.05;
@@ -388,16 +466,16 @@ export class Engine {
           cmp = { v: this.kcv.x, a: this.kca.x, rawV: cv, rawA: ca };
         }
         const extra: Record<string, number> = {};
-        if (this.model) for (const [name, head] of Object.entries(this.model.heads)) {
+        if (model) for (const [name, head] of Object.entries(model.heads)) {
           if (name === "valence" || name === "arousal" || !head) continue;
           let k = this.kx.get(name);
           if (!k) { k = new Kalman1(0.002); this.kx.set(name, k); }
-          const o = faceHold ? null : this.headValue(this.model, head, features, faceRegion);
+          const o = faceHold ? null : this.headValue(model, head, features, faceRegion);
           if (o) k.update(o.value, 0.03 / Math.max(0.2, o.conf)); else k.predict();
           extra[name] = k.x;
         }
         const states: Record<string, number> = {};
-        const ps = this.personalStates;
+        const ps = personal;
         if (ps) {
           const held = faceOutOfRange(ps.head, faceRegion);
           if (!held) {

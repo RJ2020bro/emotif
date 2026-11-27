@@ -1,6 +1,7 @@
 // Emotiv headsets (Insight, EPOC X, MN8, ...) through the EMOTIV Cortex service on this computer
-// (wss://localhost:6868, JSON-RPC 2.0). Raw EEG needs an Emotiv licence that includes the "eeg" stream; without one
-// Cortex refuses the subscription and this source says so.
+// (wss://localhost:6868, JSON-RPC 2.0). Raw EEG needs an Emotiv licence that includes the "eeg" stream (and a debited,
+// activated session). Without one, the source falls back to the "pow" band-power stream, which a free Cortex account
+// gets: the world still runs, but there is no raw signal to clean, record or read commands from.
 import type { Source, SourceSink } from "./sources";
 
 export const CORTEX_URL = "wss://localhost:6868";
@@ -33,6 +34,35 @@ export function eegColumns(cols: string[], sensors?: string[]): { names: string[
   return { names, index };
 }
 
+/** Emotiv pow bands, in column order per sensor: theta 4-8, alpha 8-12, betaL 12-16, betaH 16-25, gamma 25-45 Hz. */
+const POW_BANDS = ["theta", "alpha", "betaL", "betaH", "gamma"];
+/** Band columns of a "pow" subscription ("AF3/theta", ...): sensor names and, per sensor, the column of each band. */
+export function powColumns(cols: string[], sensors?: string[]): { names: string[]; index: number[][] } {
+  const want = sensors && sensors.length ? sensors.map(x => x.toUpperCase()) : null;
+  const by = new Map<string, { name: string; idx: number[] }>();
+  cols.forEach((c, i) => {
+    const [sensor, band] = c.split("/");
+    const b = POW_BANDS.indexOf(band ?? "");
+    if (!sensor || b < 0) return;
+    const k = sensor.toUpperCase();
+    if (want && !want.includes(k)) return;
+    if (!by.has(k)) by.set(k, { name: sensor, idx: [-1, -1, -1, -1, -1] });
+    by.get(k)!.idx[b] = i;
+  });
+  const full = [...by.values()].filter(v => v.idx.every(i => i >= 0));
+  return { names: full.map(v => v.name), index: full.map(v => v.idx) };
+}
+/** One pow sample to the engine's bands: [delta (none: NaN), theta, alpha, beta = betaL + betaH, gamma]. */
+export function powFrame(v: unknown[], index: number[][]): number[] | null {
+  const out: number[] = [];
+  for (const [th, al, bl, bh, ga] of index) {
+    const x = [th, al, bl, bh, ga].map(i => Number(v[i]));
+    if (!x.every(Number.isFinite)) return null;
+    out.push(NaN, x[0], x[1], x[2] + x[3], x[4]);
+  }
+  return out;
+}
+
 export class CortexError extends Error {
   constructor(message: string, readonly code?: number) { super(message); }
 }
@@ -60,6 +90,9 @@ export class CortexSource implements Source {
   private stopped = false;
   private colIndex: number[] = [];
   private batch: number[][] = [];
+  private powIndex: number[][] | null = null;
+  private bandBatch: number[][][] = [];
+  private bucket = { key: NaN, sum: [] as number[], n: 0 };
   private sink: SourceSink | null = null;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   timeoutMs = 15000;
@@ -88,6 +121,18 @@ export class CortexSource implements Source {
       const err = msg.error as { code?: number; message?: string } | undefined;
       if (err) p.reject(new CortexError(explainCortex(err.code, err.message ?? "Cortex error"), err.code));
       else p.resolve(msg.result);
+      return;
+    }
+    if (Array.isArray(msg.pow) && this.powIndex) {
+      const f = powFrame(msg.pow as unknown[], this.powIndex);
+      if (!f) return;
+      // average the samples of each 0.25 s step into one frame (the engine decodes every 0.25 s)
+      const t = typeof msg.time === "number" ? msg.time : Date.now() / 1000;
+      const key = Math.floor(t / 0.25), b = this.bucket;
+      if (key !== b.key) {
+        if (b.n) this.bandBatch.push(this.splitFrame(b.sum.map(x => x / b.n)));
+        b.key = key; b.sum = f.slice(); b.n = 1;
+      } else { for (let i = 0; i < f.length; i++) b.sum[i] += f[i]; b.n++; }
       return;
     }
     if (Array.isArray(msg.eeg)) {
@@ -121,6 +166,12 @@ export class CortexSource implements Source {
     });
   }
 
+  private splitFrame(flat: number[]): number[][] {
+    const out: number[][] = [];
+    for (let c = 0; c < flat.length; c += 5) out.push(flat.slice(c, c + 5));
+    return out;
+  }
+
   private wait(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
   async start(sink: SourceSink) {
@@ -142,8 +193,17 @@ export class CortexSource implements Source {
         sink.onStatus("Approve Emotif in the EMOTIV Launcher (a request is waiting there)…", "warn");
         await this.wait(this.pollMs);
       }
-      const auth = await this.rpc<{ cortexToken: string }>("authorize",
-        { ...creds, debit: 1, ...(this.cfg.license ? { license: this.cfg.license } : {}) });
+      // debit one session from the licence so the session can be activated for raw EEG; an account without a
+      // licence can't debit, so authorize again without (band power only)
+      let canDebit = true;
+      let auth: { cortexToken: string };
+      try {
+        auth = await this.rpc<{ cortexToken: string }>("authorize", { ...creds, debit: 1, ...(this.cfg.license ? { license: this.cfg.license } : {}) });
+      } catch (e) {
+        if (this.cfg.license || (e as CortexError).code === -32021) throw e;
+        canDebit = false;
+        auth = await this.rpc<{ cortexToken: string }>("authorize", creds);
+      }
       this.token = auth.cortexToken;
       type Headset = { id: string; status: string; sensors?: string[]; settings?: { eegRate?: number } };
       const pick = (hs: Headset[]) => hs.find(h => this.cfg.headsetId ? h.id === this.cfg.headsetId : /^INSIGHT/i.test(h.id)) ?? (this.cfg.headsetId ? undefined : hs[0]);
@@ -172,13 +232,25 @@ export class CortexSource implements Source {
       const fs = Number(hs.settings?.eegRate) || 128;
       const ses = await this.rpc<{ id: string }>("createSession", { cortexToken: this.token, headset: hs.id, status: "open" });
       this.session = ses.id;
-      await this.rpc("updateSession", { cortexToken: this.token, session: this.session, status: "active" });
-      const sub = await this.rpc<{ success: { streamName: string; cols: string[] }[]; failure: { streamName: string; code: number; message: string }[] }>(
-        "subscribe", { cortexToken: this.token, session: this.session, streams: ["eeg"] });
-      const ok = sub.success?.find(s => s.streamName === "eeg");
-      if (!ok) {
+      let active = false;
+      if (canDebit) {
+        try { await this.rpc("updateSession", { cortexToken: this.token, session: this.session, status: "active" }); active = true; }
+        catch { /* no licence to activate with: the open session still gives band power */ }
+      }
+      type Sub = { success: { streamName: string; cols: string[] }[]; failure: { streamName: string; code: number; message: string }[] };
+      let refusal: { code?: number; message: string } = { code: -32016, message: "raw EEG needs an activated session" };
+      let ok: { streamName: string; cols: string[] } | undefined;
+      if (active) {
+        const sub = await this.rpc<Sub>("subscribe", { cortexToken: this.token, session: this.session, streams: ["eeg"] });
+        ok = sub.success?.find(s => s.streamName === "eeg");
         const f = sub.failure?.find(s => s.streamName === "eeg");
-        throw new CortexError(explainCortex(f?.code, f?.message ?? "subscription refused"), f?.code);
+        if (f) refusal = { code: f.code, message: f.message };
+      }
+      if (!ok) {
+        if (!sink.onBands || !sink.onBandMeta) throw new CortexError(explainCortex(refusal.code, refusal.message), refusal.code);
+        if (this.stopped) return;
+        await this.startBands(hs.id, hs.sensors);
+        return;
       }
       const { names, index } = eegColumns(ok.cols, hs.sensors);
       if (names.length < 2) throw new CortexError(`The eeg stream has no electrode columns (${ok.cols.join(", ")}).`);
@@ -196,10 +268,32 @@ export class CortexSource implements Source {
     }
   }
 
+  /** Free-tier path: subscribe to band power and pass 0.25 s frames on. */
+  private async startBands(headset: string, sensors?: string[]) {
+    const sink = this.sink!;
+    type Sub = { success: { streamName: string; cols: string[] }[]; failure: { streamName: string; code: number; message: string }[] };
+    const sub = await this.rpc<Sub>("subscribe", { cortexToken: this.token, session: this.session, streams: ["pow"] });
+    const ok = sub.success?.find(s => s.streamName === "pow");
+    if (!ok) {
+      const f = sub.failure?.find(s => s.streamName === "pow");
+      throw new CortexError(`Cortex refused both raw EEG and band power: ${explainCortex(f?.code, f?.message ?? "subscription refused")}`, f?.code);
+    }
+    const { names, index } = powColumns(ok.cols, sensors);
+    if (names.length < 2) throw new CortexError(`The band-power stream has no usable sensors (${ok.cols.join(", ")}).`);
+    this.powIndex = index;
+    this.bucket = { key: NaN, sum: [], n: 0 };
+    if (this.stopped) return;
+    sink.onBandMeta!(names, `Emotiv · ${headset} · band power`);
+    sink.onStatus(`No raw-EEG licence: running on band power from ${names.length} sensors. The world works; artifact repair, blink/clench commands and recording need raw EEG.`, "warn");
+    this.flushTimer = setInterval(() => {
+      if (this.bandBatch.length) { const b = this.bandBatch; this.bandBatch = []; this.sink?.onBands?.(b); }
+    }, 100);
+  }
+
   stop() {
     this.stopped = true;
     if (this.flushTimer) { clearInterval(this.flushTimer); this.flushTimer = null; }
-    this.batch = [];
+    this.batch = []; this.bandBatch = []; this.powIndex = null;
     const ws = this.ws;
     if (ws && ws.readyState === 1 && this.session) {
       try { ws.send(JSON.stringify({ id: this.nextId++, jsonrpc: "2.0", method: "updateSession", params: { cortexToken: this.token, session: this.session, status: "close" } })); } catch { /* closing */ }

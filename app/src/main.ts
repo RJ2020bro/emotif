@@ -821,6 +821,8 @@ class App {
     return {
       onMeta: (fs, channels, label) => this.onMeta(fs, channels, label, origin),
       onRows: rows => this.onRows(rows),
+      onBandMeta: (channels, label) => this.onBandMeta(channels, label),
+      onBands: frames => { for (const f of frames) this.engine.pushBands(f); },
       onStatus: (text, kind) => this.setSourceStatus(text, kind ?? "ok"),
       onEnd: () => { this.setSourceStatus("Signal ended", "warn"); },
     };
@@ -906,6 +908,24 @@ class App {
     this.paintArmButtons();
   }
 
+  /** Band-power stream (Emotiv without a raw-EEG licence): the world and the markers run; commands, the fit check
+   * and recording need raw EEG and stay off. */
+  onBandMeta(channels: string[], label: string) {
+    this.rawChannels = channels.slice();
+    try { this.engine.setBandStream(channels); } catch (e) { this.setSourceStatus((e as Error).message, "error"); this.source?.stop(); return; }
+    this.streamLabel = label;
+    this.sim.calibSec = this.engine.settings.calibSec;
+    this.intent = null;
+    this.engine.rowTaps.clear();
+    this.trail = []; this.events = []; this.blocks = [];
+    this.world.clearStrata();
+    this.lastStrata = 0;
+    $("stSource").textContent = `Source: ${label}`;
+    $("stSource").title = `Source: ${label}`;
+    this.renderMontage();
+    this.paintArmButtons();
+  }
+
   onRows(rows: number[][]) {
     this.engine.push(rows);
     if (this.origin === "browser" && this.recording) {
@@ -976,6 +996,7 @@ class App {
   }
   async startRecording(protocol: string): Promise<boolean> {
     this.showErr("studyErr", "");
+    if (this.engine.bandMode) { this.showErr("studyErr", "Recording needs raw EEG. This headset is streaming band power only (no raw-EEG licence)."); return false; }
     const code = $<HTMLInputElement>("pcode").value.trim();
     store.set("pcode", code);
     try {
@@ -1795,7 +1816,7 @@ class App {
 
   paintFit() {
     const e = this.engine;
-    if (!e.C || e.total < e.fs * 2) return;
+    if (!e.C || e.bandMode || e.total < e.fs * 2) return;
     const needBase = !e.calibrated && this.view === "live";
     if (this.view !== "setup" && !needBase) return;
     const fit = fitCheck(e.lastSamples(Math.round(e.fs * 2), "raw"), e.lastSamples(Math.round(e.fs * 2), "filtered"), e.fs);
@@ -1944,7 +1965,7 @@ class App {
     const entry = this.models.find(m => m.id === this.modelId);
     const cov = e.C ? coverage(e.channels) : null;
     $("pipeline").replaceChildren(
-      stage("1", "Record the brain signal", "Any headset: Muse, OpenBCI, Emotiv, Neurosity, Unicorn, BrainBit, or a lab cap.", e.C ? `${e.C} ch at ${+e.fs.toFixed(1)} Hz` : "no signal"),
+      stage("1", "Record the brain signal", "Any headset: Muse, OpenBCI, Emotiv, Neurosity, Unicorn, BrainBit, or a lab cap.", e.C ? (e.bandMode ? `${e.C} ch, band power only` : `${e.C} ch at ${+e.fs.toFixed(1)} Hz`) : "no signal"),
       stage("2", "Remove hum and drift", "0.5 Hz high-pass removes drift; notches remove 50/60 Hz mains hum.", "causal, sample by sample"),
       stage("3", "Repair blinks and muscle bursts", "Artifact Subspace Reconstruction finds bursts that don't look like the baseline and rebuilds them from the clean channels.", e.asrActive ? `${Math.round((ev?.repaired ?? 0) * 100)}% of last 10 s repaired` : e.calibrated ? "off" : "calibrating"),
       stage("4", "Flag noisy sensors", "A neural network trained on 13,500 recordings (EEGdenoiseNet) labels each channel clean, eye or muscle, and holds out bad ones.", e.detectorActive && ev ? `${ev.masked.filter(Boolean).length} of ${e.C} held out` : e.calibrated ? "off" : "calibrating"),
