@@ -147,3 +147,5 @@ Rebuild the app after editing TypeScript: `cd app && npm install && npm run buil
 
 ## Acknowledgements
 Built with substantial help from an AI assistant (Claude, Anthropic); see `docs/AI_USE.md`. Data: GAMEEMO (Alakus et al. 2020), Bird et al. (2018) and EEGdenoiseNet (Zhang et al. 2021).
+
+I build software with Claude Code, an AI coding agent. When it pushes on my behalf, GitHub attributes those commits to the "claude" account, so contributor counts reflect the tool used, not who designed the project. I set the goals, design, and features, review and test the changes, and decide what ships.
